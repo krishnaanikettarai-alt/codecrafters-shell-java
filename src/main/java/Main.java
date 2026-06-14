@@ -1,5 +1,4 @@
 import java.io.File;
-import java.util.Arrays;
 import java.util.Scanner;
 
 public class Main {
@@ -76,9 +75,7 @@ public class Main {
                     continue;
                 }
 
-                parts[0] = executable.getAbsolutePath();
-
-                ProcessBuilder pb = new ProcessBuilder(Arrays.asList(parts));
+                ProcessBuilder pb = new ProcessBuilder(parts);
                 pb.inheritIO();
 
                 Process process = pb.start();
