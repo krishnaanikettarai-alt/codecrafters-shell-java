@@ -1,36 +1,64 @@
 
+import java.io.File;
 import java.util.Scanner;
 
 public class Main {
 
+    private static boolean isBuiltin(String command) {
+        return command.equals("echo")
+                || command.equals("exit")
+                || command.equals("type");
+    }
+
     public static void main(String[] args) {
+
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
             System.out.print("$ ");
 
-            String command = scanner.nextLine();
+            String input = scanner.nextLine();
 
-            if (command.equals("exit")) {
+            if (input.equals("exit")) {
                 break;
-            } else if (command.startsWith("echo ")) {
-                System.out.println(command.substring(5));
-            } else if (command.startsWith("type ")) {
+            } else if (input.startsWith("echo ")) {
+                System.out.println(input.substring(5));
+            } else if (input.startsWith("type ")) {
 
-                String arg = command.substring(5);
+                String command = input.substring(5);
 
-                if (arg.equals("echo")
-                        || arg.equals("exit")
-                        || arg.equals("type")) {
-
-                    System.out.println(arg + " is a shell builtin");
+                if (isBuiltin(command)) {
+                    System.out.println(command + " is a shell builtin");
                 } else {
-                    System.out.println(arg + ": not found");
-                }
 
+                    String pathEnv = System.getenv("PATH");
+                    String[] paths = pathEnv.split(File.pathSeparator);
+
+                    boolean found = false;
+
+                    for (String path : paths) {
+
+                        File file = new File(path, command);
+
+                        if (file.exists()
+                                && file.isFile()
+                                && file.canExecute()) {
+
+                            System.out.println(command + " is " + file.getAbsolutePath());
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        System.out.println(command + ": not found");
+                    }
+                }
             } else {
-                System.out.println(command + ": command not found");
+                System.out.println(input + ": command not found");
             }
         }
+
+        scanner.close();
     }
 }
