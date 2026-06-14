@@ -1,4 +1,6 @@
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class Main {
@@ -29,6 +31,37 @@ public class Main {
         return null;
     }
 
+    private static List<String> parseCommand(String input) {
+        List<String> args = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+
+        boolean inSingleQuotes = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char ch = input.charAt(i);
+
+            if (ch == '\'') {
+                inSingleQuotes = !inSingleQuotes;
+                continue;
+            }
+
+            if (Character.isWhitespace(ch) && !inSingleQuotes) {
+                if (current.length() > 0) {
+                    args.add(current.toString());
+                    current.setLength(0);
+                }
+            } else {
+                current.append(ch);
+            }
+        }
+
+        if (current.length() > 0) {
+            args.add(current.toString());
+        }
+
+        return args;
+    }
+
     public static void main(String[] args) throws Exception {
 
         Scanner scanner = new Scanner(System.in);
@@ -38,17 +71,39 @@ public class Main {
 
             String input = scanner.nextLine();
 
-            if (input.equals("exit")) {
+            List<String> tokens = parseCommand(input);
+
+            if (tokens.isEmpty()) {
+                continue;
+            }
+
+            String command = tokens.get(0);
+
+            if (command.equals("exit")) {
                 break;
             }
 
-            else if (input.startsWith("echo ")) {
-                System.out.println(input.substring(5));
+            else if (command.equals("echo")) {
+
+                StringBuilder output = new StringBuilder();
+
+                for (int i = 1; i < tokens.size(); i++) {
+                    if (i > 1) {
+                        output.append(" ");
+                    }
+                    output.append(tokens.get(i));
+                }
+
+                System.out.println(output);
             }
 
-            else if (input.startsWith("type ")) {
+            else if (command.equals("type")) {
 
-                String cmd = input.substring(5);
+                if (tokens.size() < 2) {
+                    continue;
+                }
+
+                String cmd = tokens.get(1);
 
                 if (isBuiltin(cmd)) {
                     System.out.println(cmd + " is a shell builtin");
@@ -65,9 +120,6 @@ public class Main {
 
             else {
 
-                String[] parts = input.split("\\s+");
-                String command = parts[0];
-
                 File executable = findExecutable(command);
 
                 if (executable == null) {
@@ -75,7 +127,7 @@ public class Main {
                     continue;
                 }
 
-                ProcessBuilder pb = new ProcessBuilder(parts);
+                ProcessBuilder pb = new ProcessBuilder(tokens);
                 pb.inheritIO();
 
                 Process process = pb.start();
