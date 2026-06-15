@@ -41,16 +41,28 @@ public class Main {
         for (int i = 0; i < input.length(); i++) {
             char ch = input.charAt(i);
 
+            // Backslash escaping outside quotes
+            if (ch == '\\' && !inSingleQuotes && !inDoubleQuotes) {
+                if (i + 1 < input.length()) {
+                    current.append(input.charAt(i + 1));
+                    i++;
+                }
+                continue;
+            }
+
+            // Single quotes
             if (ch == '\'' && !inDoubleQuotes) {
                 inSingleQuotes = !inSingleQuotes;
                 continue;
             }
 
+            // Double quotes
             if (ch == '"' && !inSingleQuotes) {
                 inDoubleQuotes = !inDoubleQuotes;
                 continue;
             }
 
+            // Argument separator
             if (Character.isWhitespace(ch)
                     && !inSingleQuotes
                     && !inDoubleQuotes) {
