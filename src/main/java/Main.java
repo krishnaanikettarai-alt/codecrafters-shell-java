@@ -1,3 +1,4 @@
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +41,23 @@ public class Main {
 
         for (int i = 0; i < input.length(); i++) {
             char ch = input.charAt(i);
+
+            // Backslash handling inside double quotes
+            if (ch == '\\' && inDoubleQuotes) {
+                if (i + 1 < input.length()) {
+                    char next = input.charAt(i + 1);
+
+                    if (next == '"' || next == '\\') {
+                        current.append(next);
+                        i++;
+                    } else {
+                        current.append('\\');
+                    }
+                } else {
+                    current.append('\\');
+                }
+                continue;
+            }
 
             // Backslash escaping outside quotes
             if (ch == '\\' && !inSingleQuotes && !inDoubleQuotes) {
