@@ -166,7 +166,11 @@ public class Main {
                     continue;
                 }
 
-                ProcessBuilder pb = new ProcessBuilder(tokens);
+                // Replace executable name with its absolute path
+                List<String> commandArgs = new ArrayList<>(tokens);
+                commandArgs.set(0, executable.getAbsolutePath());
+
+                ProcessBuilder pb = new ProcessBuilder(commandArgs);
                 pb.inheritIO();
 
                 Process process = pb.start();
