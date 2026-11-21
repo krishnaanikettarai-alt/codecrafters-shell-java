@@ -59,6 +59,7 @@ public class Main {
                 } else {
                     current.append('\\');
                 }
+
                 continue;
             }
 
@@ -68,6 +69,7 @@ public class Main {
                     current.append(input.charAt(i + 1));
                     i++;
                 }
+
                 continue;
             }
 
@@ -85,7 +87,6 @@ public class Main {
 
             // Output and error redirection operators
             if (ch == '>' && !inSingleQuotes && !inDoubleQuotes) {
-
                 boolean append = i + 1 < input.length()
                         && input.charAt(i + 1) == '>';
 
@@ -96,9 +97,9 @@ public class Main {
                 if (current.toString().equals("1")) {
                     current.setLength(0);
                     args.add(append ? "1>>" : "1>");
-                } else if (current.toString().equals("2") && !append) {
+                } else if (current.toString().equals("2")) {
                     current.setLength(0);
-                    args.add("2>");
+                    args.add(append ? "2>>" : "2>");
                 } else {
                     if (current.length() > 0) {
                         args.add(current.toString());
@@ -139,7 +140,6 @@ public class Main {
     ) throws Exception {
 
         if (outputFile != null) {
-
             if (append) {
                 Files.writeString(
                         new File(outputFile).toPath(),
@@ -155,21 +155,59 @@ public class Main {
                         StandardCharsets.UTF_8
                 );
             }
-
         } else {
             System.out.print(output);
         }
     }
 
-    private static void prepareErrorFile(String errorFile)
-            throws Exception {
+    private static void prepareErrorFile(
+            String errorFile,
+            boolean appendError
+    ) throws Exception {
 
         if (errorFile != null) {
-            Files.writeString(
-                    new File(errorFile).toPath(),
-                    "",
-                    StandardCharsets.UTF_8
-            );
+            if (appendError) {
+                Files.writeString(
+                        new File(errorFile).toPath(),
+                        "",
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+            } else {
+                Files.writeString(
+                        new File(errorFile).toPath(),
+                        "",
+                        StandardCharsets.UTF_8
+                );
+            }
+        }
+    }
+
+    private static void writeError(
+            String error,
+            String errorFile,
+            boolean appendError
+    ) throws Exception {
+
+        if (errorFile != null) {
+            if (appendError) {
+                Files.writeString(
+                        new File(errorFile).toPath(),
+                        error,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+            } else {
+                Files.writeString(
+                        new File(errorFile).toPath(),
+                        error,
+                        StandardCharsets.UTF_8
+                );
+            }
+        } else {
+            System.err.print(error);
         }
     }
 
@@ -179,6 +217,10 @@ public class Main {
 
         while (true) {
             System.out.print("$ ");
+
+            if (!scanner.hasNextLine()) {
+                break;
+            }
 
             String input = scanner.nextLine();
 
@@ -191,7 +233,9 @@ public class Main {
             // Handle redirection
             String outputFile = null;
             String errorFile = null;
+
             boolean appendOutput = false;
+            boolean appendError = false;
 
             List<String> commandTokens = new ArrayList<>();
 
@@ -203,14 +247,16 @@ public class Main {
                         || token.equals("1>")
                         || token.equals(">>")
                         || token.equals("1>>")
-                        || token.equals("2>")) {
+                        || token.equals("2>")
+                        || token.equals("2>>")) {
 
                     if (i + 1 < tokens.size()) {
 
                         String filename = tokens.get(++i);
 
-                        if (token.equals("2>")) {
+                        if (token.equals("2>") || token.equals("2>>")) {
                             errorFile = filename;
+                            appendError = token.equals("2>>");
                         } else {
                             outputFile = filename;
                             appendOutput = token.equals(">>")
@@ -219,8 +265,9 @@ public class Main {
 
                     } else {
                         System.out.println(
-                                "syntax error: expected filename after '>'"
+                                "syntax error: expected filename after redirection"
                         );
+
                         commandTokens.clear();
                         break;
                     }
@@ -238,7 +285,7 @@ public class Main {
 
             // Exit builtin
             if (command.equals("exit")) {
-                prepareErrorFile(errorFile);
+                prepareErrorFile(errorFile, appendError);
                 break;
             }
 
@@ -251,12 +298,13 @@ public class Main {
                     if (i > 1) {
                         output.append(" ");
                     }
+
                     output.append(commandTokens.get(i));
                 }
 
                 output.append("\n");
 
-                prepareErrorFile(errorFile);
+                prepareErrorFile(errorFile, appendError);
 
                 outputResult(
                         output.toString(),
@@ -268,7 +316,7 @@ public class Main {
             // Type builtin
             else if (command.equals("type")) {
 
-                prepareErrorFile(errorFile);
+                prepareErrorFile(errorFile, appendError);
 
                 if (commandTokens.size() < 2) {
                     continue;
@@ -306,15 +354,7 @@ public class Main {
 
                     String error = command + ": command not found\n";
 
-                    if (errorFile != null) {
-                        Files.writeString(
-                                new File(errorFile).toPath(),
-                                error,
-                                StandardCharsets.UTF_8
-                        );
-                    } else {
-                        System.err.print(error);
-                    }
+                    writeError(error, errorFile, appendError);
 
                     continue;
                 }
@@ -339,7 +379,15 @@ public class Main {
 
                 // Configure stderr
                 if (errorFile != null) {
-                    pb.redirectError(new File(errorFile));
+                    if (appendError) {
+                        pb.redirectError(
+                                ProcessBuilder.Redirect.appendTo(
+                                        new File(errorFile)
+                                )
+                        );
+                    } else {
+                        pb.redirectError(new File(errorFile));
+                    }
                 } else {
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                 }
