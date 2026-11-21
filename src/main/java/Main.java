@@ -82,18 +82,23 @@ public class Main {
                 continue;
             }
 
-            // Output redirection operator
+            // Output and error redirection operators
             if (ch == '>' && !inSingleQuotes && !inDoubleQuotes) {
 
-                // Handle explicit stdout descriptor: 1>
                 if (current.toString().equals("1")) {
                     current.setLength(0);
-                } else if (current.length() > 0) {
-                    args.add(current.toString());
+                    args.add("1>");
+                } else if (current.toString().equals("2")) {
                     current.setLength(0);
+                    args.add("2>");
+                } else {
+                    if (current.length() > 0) {
+                        args.add(current.toString());
+                        current.setLength(0);
+                    }
+                    args.add(">");
                 }
 
-                args.add(">");
                 continue;
             }
 
@@ -132,6 +137,18 @@ public class Main {
         }
     }
 
+    private static void prepareErrorFile(String errorFile)
+            throws Exception {
+
+        if (errorFile != null) {
+            Files.writeString(
+                    new File(errorFile).toPath(),
+                    "",
+                    StandardCharsets.UTF_8
+            );
+        }
+    }
+
     public static void main(String[] args) throws Exception {
 
         Scanner scanner = new Scanner(System.in);
@@ -147,17 +164,29 @@ public class Main {
                 continue;
             }
 
-            // Handle output redirection
+            // Handle redirection
             String outputFile = null;
+            String errorFile = null;
+
             List<String> commandTokens = new ArrayList<>();
 
             for (int i = 0; i < tokens.size(); i++) {
 
-                if (tokens.get(i).equals(">")) {
+                String token = tokens.get(i);
+
+                if (token.equals(">") || token.equals("1>")
+                        || token.equals("2>")) {
 
                     if (i + 1 < tokens.size()) {
-                        outputFile = tokens.get(i + 1);
-                        i++;
+
+                        String filename = tokens.get(++i);
+
+                        if (token.equals("2>")) {
+                            errorFile = filename;
+                        } else {
+                            outputFile = filename;
+                        }
+
                     } else {
                         System.out.println(
                                 "syntax error: expected filename after '>'"
@@ -167,7 +196,7 @@ public class Main {
                     }
 
                 } else {
-                    commandTokens.add(tokens.get(i));
+                    commandTokens.add(token);
                 }
             }
 
@@ -179,6 +208,7 @@ public class Main {
 
             // Exit builtin
             if (command.equals("exit")) {
+                prepareErrorFile(errorFile);
                 break;
             }
 
@@ -196,11 +226,14 @@ public class Main {
 
                 output.append("\n");
 
+                prepareErrorFile(errorFile);
                 outputResult(output.toString(), outputFile);
             }
 
             // Type builtin
             else if (command.equals("type")) {
+
+                prepareErrorFile(errorFile);
 
                 if (commandTokens.size() < 2) {
                     continue;
@@ -231,21 +264,40 @@ public class Main {
                 File executable = findExecutable(command);
 
                 if (executable == null) {
-                    System.out.println(command + ": command not found");
+
+                    String error = command + ": command not found\n";
+
+                    if (errorFile != null) {
+                        Files.writeString(
+                                new File(errorFile).toPath(),
+                                error,
+                                StandardCharsets.UTF_8
+                        );
+                    } else {
+                        System.err.print(error);
+                    }
+
                     continue;
                 }
 
-                // Preserve the original command name as argv[0].
-                // ProcessBuilder resolves the executable through PATH.
+                // Preserve original command name as argv[0]
                 ProcessBuilder pb = new ProcessBuilder(commandTokens);
 
+                // Redirect stdout independently
                 if (outputFile != null) {
                     pb.redirectOutput(new File(outputFile));
-                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
                 } else {
-                    pb.inheritIO();
+                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 }
+
+                // Redirect stderr independently
+                if (errorFile != null) {
+                    pb.redirectError(new File(errorFile));
+                } else {
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                }
+
+                pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
                 Process process = pb.start();
                 process.waitFor();
