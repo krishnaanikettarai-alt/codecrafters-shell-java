@@ -2,6 +2,7 @@
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -85,10 +86,17 @@ public class Main {
             // Output and error redirection operators
             if (ch == '>' && !inSingleQuotes && !inDoubleQuotes) {
 
+                boolean append = i + 1 < input.length()
+                        && input.charAt(i + 1) == '>';
+
+                if (append) {
+                    i++;
+                }
+
                 if (current.toString().equals("1")) {
                     current.setLength(0);
-                    args.add("1>");
-                } else if (current.toString().equals("2")) {
+                    args.add(append ? "1>>" : "1>");
+                } else if (current.toString().equals("2") && !append) {
                     current.setLength(0);
                     args.add("2>");
                 } else {
@@ -96,7 +104,8 @@ public class Main {
                         args.add(current.toString());
                         current.setLength(0);
                     }
-                    args.add(">");
+
+                    args.add(append ? ">>" : ">");
                 }
 
                 continue;
@@ -123,15 +132,30 @@ public class Main {
         return args;
     }
 
-    private static void outputResult(String output, String outputFile)
-            throws Exception {
+    private static void outputResult(
+            String output,
+            String outputFile,
+            boolean append
+    ) throws Exception {
 
         if (outputFile != null) {
-            Files.writeString(
-                    new File(outputFile).toPath(),
-                    output,
-                    StandardCharsets.UTF_8
-            );
+
+            if (append) {
+                Files.writeString(
+                        new File(outputFile).toPath(),
+                        output,
+                        StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.APPEND
+                );
+            } else {
+                Files.writeString(
+                        new File(outputFile).toPath(),
+                        output,
+                        StandardCharsets.UTF_8
+                );
+            }
+
         } else {
             System.out.print(output);
         }
@@ -167,6 +191,7 @@ public class Main {
             // Handle redirection
             String outputFile = null;
             String errorFile = null;
+            boolean appendOutput = false;
 
             List<String> commandTokens = new ArrayList<>();
 
@@ -174,7 +199,10 @@ public class Main {
 
                 String token = tokens.get(i);
 
-                if (token.equals(">") || token.equals("1>")
+                if (token.equals(">")
+                        || token.equals("1>")
+                        || token.equals(">>")
+                        || token.equals("1>>")
                         || token.equals("2>")) {
 
                     if (i + 1 < tokens.size()) {
@@ -185,6 +213,8 @@ public class Main {
                             errorFile = filename;
                         } else {
                             outputFile = filename;
+                            appendOutput = token.equals(">>")
+                                    || token.equals("1>>");
                         }
 
                     } else {
@@ -227,7 +257,12 @@ public class Main {
                 output.append("\n");
 
                 prepareErrorFile(errorFile);
-                outputResult(output.toString(), outputFile);
+
+                outputResult(
+                        output.toString(),
+                        outputFile,
+                        appendOutput
+                );
             }
 
             // Type builtin
@@ -255,7 +290,11 @@ public class Main {
                     }
                 }
 
-                outputResult(output, outputFile);
+                outputResult(
+                        output,
+                        outputFile,
+                        appendOutput
+                );
             }
 
             // External commands
@@ -283,14 +322,22 @@ public class Main {
                 // Preserve original command name as argv[0]
                 ProcessBuilder pb = new ProcessBuilder(commandTokens);
 
-                // Redirect stdout independently
+                // Configure stdout
                 if (outputFile != null) {
-                    pb.redirectOutput(new File(outputFile));
+                    if (appendOutput) {
+                        pb.redirectOutput(
+                                ProcessBuilder.Redirect.appendTo(
+                                        new File(outputFile)
+                                )
+                        );
+                    } else {
+                        pb.redirectOutput(new File(outputFile));
+                    }
                 } else {
                     pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 }
 
-                // Redirect stderr independently
+                // Configure stderr
                 if (errorFile != null) {
                     pb.redirectError(new File(errorFile));
                 } else {
