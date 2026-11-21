@@ -1,5 +1,7 @@
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -80,6 +82,21 @@ public class Main {
                 continue;
             }
 
+            // Output redirection operator
+            if (ch == '>' && !inSingleQuotes && !inDoubleQuotes) {
+
+                // Handle explicit stdout descriptor: 1>
+                if (current.toString().equals("1")) {
+                    current.setLength(0);
+                } else if (current.length() > 0) {
+                    args.add(current.toString());
+                    current.setLength(0);
+                }
+
+                args.add(">");
+                continue;
+            }
+
             // Argument separator
             if (Character.isWhitespace(ch)
                     && !inSingleQuotes
@@ -101,6 +118,20 @@ public class Main {
         return args;
     }
 
+    private static void outputResult(String output, String outputFile)
+            throws Exception {
+
+        if (outputFile != null) {
+            Files.writeString(
+                    new File(outputFile).toPath(),
+                    output,
+                    StandardCharsets.UTF_8
+            );
+        } else {
+            System.out.print(output);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
 
         Scanner scanner = new Scanner(System.in);
@@ -116,47 +147,85 @@ public class Main {
                 continue;
             }
 
-            String command = tokens.get(0);
+            // Handle output redirection
+            String outputFile = null;
+            List<String> commandTokens = new ArrayList<>();
 
+            for (int i = 0; i < tokens.size(); i++) {
+
+                if (tokens.get(i).equals(">")) {
+
+                    if (i + 1 < tokens.size()) {
+                        outputFile = tokens.get(i + 1);
+                        i++;
+                    } else {
+                        System.out.println(
+                                "syntax error: expected filename after '>'"
+                        );
+                        commandTokens.clear();
+                        break;
+                    }
+
+                } else {
+                    commandTokens.add(tokens.get(i));
+                }
+            }
+
+            if (commandTokens.isEmpty()) {
+                continue;
+            }
+
+            String command = commandTokens.get(0);
+
+            // Exit builtin
             if (command.equals("exit")) {
                 break;
             }
 
+            // Echo builtin
             else if (command.equals("echo")) {
 
                 StringBuilder output = new StringBuilder();
 
-                for (int i = 1; i < tokens.size(); i++) {
+                for (int i = 1; i < commandTokens.size(); i++) {
                     if (i > 1) {
                         output.append(" ");
                     }
-                    output.append(tokens.get(i));
+                    output.append(commandTokens.get(i));
                 }
 
-                System.out.println(output);
+                output.append("\n");
+
+                outputResult(output.toString(), outputFile);
             }
 
+            // Type builtin
             else if (command.equals("type")) {
 
-                if (tokens.size() < 2) {
+                if (commandTokens.size() < 2) {
                     continue;
                 }
 
-                String cmd = tokens.get(1);
+                String cmd = commandTokens.get(1);
+                String output;
 
                 if (isBuiltin(cmd)) {
-                    System.out.println(cmd + " is a shell builtin");
+                    output = cmd + " is a shell builtin\n";
                 } else {
                     File executable = findExecutable(cmd);
 
                     if (executable != null) {
-                        System.out.println(cmd + " is " + executable.getAbsolutePath());
+                        output = cmd + " is "
+                                + executable.getAbsolutePath() + "\n";
                     } else {
-                        System.out.println(cmd + ": not found");
+                        output = cmd + ": not found\n";
                     }
                 }
+
+                outputResult(output, outputFile);
             }
 
+            // External commands
             else {
 
                 File executable = findExecutable(command);
@@ -166,12 +235,17 @@ public class Main {
                     continue;
                 }
 
-                // Replace executable name with its absolute path
-                List<String> commandArgs = new ArrayList<>(tokens);
-                commandArgs.set(0, executable.getAbsolutePath());
+                // Preserve the original command name as argv[0].
+                // ProcessBuilder resolves the executable through PATH.
+                ProcessBuilder pb = new ProcessBuilder(commandTokens);
 
-                ProcessBuilder pb = new ProcessBuilder(commandArgs);
-                pb.inheritIO();
+                if (outputFile != null) {
+                    pb.redirectOutput(new File(outputFile));
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                } else {
+                    pb.inheritIO();
+                }
 
                 Process process = pb.start();
                 process.waitFor();
