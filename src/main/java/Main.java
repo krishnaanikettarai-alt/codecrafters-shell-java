@@ -5,9 +5,26 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Scanner;
+
+import org.jline.reader.Candidate;
+import org.jline.reader.Completer;
+import org.jline.reader.EndOfFileException;
+import org.jline.reader.LineReader;
+import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.UserInterruptException;
+import org.jline.reader.impl.DefaultParser;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
 
 public class Main {
+
+    // Custom JLine parser: preserve backslashes for our shell parser
+    private static class ShellParser extends DefaultParser {
+        @Override
+        public boolean isEscapeChar(char ch) {
+            return false;
+        }
+    }
 
     private static boolean isBuiltin(String command) {
         return command.equals("echo")
@@ -35,6 +52,7 @@ public class Main {
         return null;
     }
 
+    // Parse commands, quotes, backslashes and redirection operators
     private static List<String> parseCommand(String input) {
         List<String> args = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -68,6 +86,8 @@ public class Main {
                 if (i + 1 < input.length()) {
                     current.append(input.charAt(i + 1));
                     i++;
+                } else {
+                    current.append('\\');
                 }
 
                 continue;
@@ -213,192 +233,216 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
 
-        Scanner scanner = new Scanner(System.in);
+        // Builtin command autocompletion
+        Completer completer = (reader, line, candidates) -> {
+            if (line.wordIndex() == 0) {
+                String partial = line.word();
 
-        while (true) {
-            System.out.print("$ ");
+                if ("echo".startsWith(partial)) {
+                    candidates.add(new Candidate("echo"));
+                }
 
-            if (!scanner.hasNextLine()) {
-                break;
+                if ("exit".startsWith(partial)) {
+                    candidates.add(new Candidate("exit"));
+                }
             }
+        };
 
-            String input = scanner.nextLine();
+        try (Terminal terminal = TerminalBuilder.builder()
+                .system(true)
+                .build()) {
 
-            List<String> tokens = parseCommand(input);
+            LineReader reader = LineReaderBuilder.builder()
+                    .terminal(terminal)
+                    .parser(new ShellParser())
+                    .completer(completer)
+                    .build();
 
-            if (tokens.isEmpty()) {
-                continue;
-            }
+            while (true) {
 
-            // Handle redirection
-            String outputFile = null;
-            String errorFile = null;
+                String input;
 
-            boolean appendOutput = false;
-            boolean appendError = false;
+                try {
+                    input = reader.readLine("$ ");
+                } catch (UserInterruptException e) {
+                    continue;
+                } catch (EndOfFileException e) {
+                    break;
+                }
 
-            List<String> commandTokens = new ArrayList<>();
+                List<String> tokens = parseCommand(input);
 
-            for (int i = 0; i < tokens.size(); i++) {
+                if (tokens.isEmpty()) {
+                    continue;
+                }
 
-                String token = tokens.get(i);
+                // Handle redirection
+                String outputFile = null;
+                String errorFile = null;
 
-                if (token.equals(">")
-                        || token.equals("1>")
-                        || token.equals(">>")
-                        || token.equals("1>>")
-                        || token.equals("2>")
-                        || token.equals("2>>")) {
+                boolean appendOutput = false;
+                boolean appendError = false;
 
-                    if (i + 1 < tokens.size()) {
+                List<String> commandTokens = new ArrayList<>();
 
-                        String filename = tokens.get(++i);
+                for (int i = 0; i < tokens.size(); i++) {
 
-                        if (token.equals("2>") || token.equals("2>>")) {
-                            errorFile = filename;
-                            appendError = token.equals("2>>");
+                    String token = tokens.get(i);
+
+                    if (token.equals(">")
+                            || token.equals("1>")
+                            || token.equals(">>")
+                            || token.equals("1>>")
+                            || token.equals("2>")
+                            || token.equals("2>>")) {
+
+                        if (i + 1 < tokens.size()) {
+
+                            String filename = tokens.get(++i);
+
+                            if (token.equals("2>") || token.equals("2>>")) {
+                                errorFile = filename;
+                                appendError = token.equals("2>>");
+                            } else {
+                                outputFile = filename;
+                                appendOutput = token.equals(">>")
+                                        || token.equals("1>>");
+                            }
+
                         } else {
-                            outputFile = filename;
-                            appendOutput = token.equals(">>")
-                                    || token.equals("1>>");
+                            System.out.println(
+                                    "syntax error: expected filename after redirection"
+                            );
+
+                            commandTokens.clear();
+                            break;
                         }
 
                     } else {
-                        System.out.println(
-                                "syntax error: expected filename after redirection"
-                        );
-
-                        commandTokens.clear();
-                        break;
+                        commandTokens.add(token);
                     }
-
-                } else {
-                    commandTokens.add(token);
-                }
-            }
-
-            if (commandTokens.isEmpty()) {
-                continue;
-            }
-
-            String command = commandTokens.get(0);
-
-            // Exit builtin
-            if (command.equals("exit")) {
-                prepareErrorFile(errorFile, appendError);
-                break;
-            }
-
-            // Echo builtin
-            else if (command.equals("echo")) {
-
-                StringBuilder output = new StringBuilder();
-
-                for (int i = 1; i < commandTokens.size(); i++) {
-                    if (i > 1) {
-                        output.append(" ");
-                    }
-
-                    output.append(commandTokens.get(i));
                 }
 
-                output.append("\n");
-
-                prepareErrorFile(errorFile, appendError);
-
-                outputResult(
-                        output.toString(),
-                        outputFile,
-                        appendOutput
-                );
-            }
-
-            // Type builtin
-            else if (command.equals("type")) {
-
-                prepareErrorFile(errorFile, appendError);
-
-                if (commandTokens.size() < 2) {
+                if (commandTokens.isEmpty()) {
                     continue;
                 }
 
-                String cmd = commandTokens.get(1);
-                String output;
+                String command = commandTokens.get(0);
 
-                if (isBuiltin(cmd)) {
-                    output = cmd + " is a shell builtin\n";
-                } else {
-                    File executable = findExecutable(cmd);
+                // Exit builtin
+                if (command.equals("exit")) {
+                    prepareErrorFile(errorFile, appendError);
+                    break;
+                }
 
-                    if (executable != null) {
-                        output = cmd + " is "
-                                + executable.getAbsolutePath() + "\n";
-                    } else {
-                        output = cmd + ": not found\n";
+                // Echo builtin
+                else if (command.equals("echo")) {
+
+                    StringBuilder output = new StringBuilder();
+
+                    for (int i = 1; i < commandTokens.size(); i++) {
+                        if (i > 1) {
+                            output.append(" ");
+                        }
+
+                        output.append(commandTokens.get(i));
                     }
+
+                    output.append("\n");
+
+                    prepareErrorFile(errorFile, appendError);
+
+                    outputResult(
+                            output.toString(),
+                            outputFile,
+                            appendOutput
+                    );
                 }
 
-                outputResult(
-                        output,
-                        outputFile,
-                        appendOutput
-                );
-            }
+                // Type builtin
+                else if (command.equals("type")) {
 
-            // External commands
-            else {
+                    prepareErrorFile(errorFile, appendError);
 
-                File executable = findExecutable(command);
-
-                if (executable == null) {
-
-                    String error = command + ": command not found\n";
-
-                    writeError(error, errorFile, appendError);
-
-                    continue;
-                }
-
-                // Preserve original command name as argv[0]
-                ProcessBuilder pb = new ProcessBuilder(commandTokens);
-
-                // Configure stdout
-                if (outputFile != null) {
-                    if (appendOutput) {
-                        pb.redirectOutput(
-                                ProcessBuilder.Redirect.appendTo(
-                                        new File(outputFile)
-                                )
-                        );
-                    } else {
-                        pb.redirectOutput(new File(outputFile));
+                    if (commandTokens.size() < 2) {
+                        continue;
                     }
-                } else {
-                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                }
 
-                // Configure stderr
-                if (errorFile != null) {
-                    if (appendError) {
-                        pb.redirectError(
-                                ProcessBuilder.Redirect.appendTo(
-                                        new File(errorFile)
-                                )
-                        );
+                    String cmd = commandTokens.get(1);
+                    String output;
+
+                    if (isBuiltin(cmd)) {
+                        output = cmd + " is a shell builtin\n";
                     } else {
-                        pb.redirectError(new File(errorFile));
+                        File executable = findExecutable(cmd);
+
+                        if (executable != null) {
+                            output = cmd + " is "
+                                    + executable.getAbsolutePath() + "\n";
+                        } else {
+                            output = cmd + ": not found\n";
+                        }
                     }
-                } else {
-                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+                    outputResult(
+                            output,
+                            outputFile,
+                            appendOutput
+                    );
                 }
 
-                pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                // External commands
+                else {
 
-                Process process = pb.start();
-                process.waitFor();
+                    File executable = findExecutable(command);
+
+                    if (executable == null) {
+                        String error = command + ": command not found\n";
+
+                        writeError(error, errorFile, appendError);
+
+                        continue;
+                    }
+
+                    // Preserve original command name as argv[0]
+                    ProcessBuilder pb = new ProcessBuilder(commandTokens);
+
+                    // Configure stdout
+                    if (outputFile != null) {
+                        if (appendOutput) {
+                            pb.redirectOutput(
+                                    ProcessBuilder.Redirect.appendTo(
+                                            new File(outputFile)
+                                    )
+                            );
+                        } else {
+                            pb.redirectOutput(new File(outputFile));
+                        }
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+
+                    // Configure stderr
+                    if (errorFile != null) {
+                        if (appendError) {
+                            pb.redirectError(
+                                    ProcessBuilder.Redirect.appendTo(
+                                            new File(errorFile)
+                                    )
+                            );
+                        } else {
+                            pb.redirectError(new File(errorFile));
+                        }
+                    } else {
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    }
+
+                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+
+                    Process process = pb.start();
+                    process.waitFor();
+                }
             }
         }
-
-        scanner.close();
     }
 }
