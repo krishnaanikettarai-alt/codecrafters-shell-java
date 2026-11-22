@@ -293,15 +293,49 @@ public class Main {
                     return true;
                 }
 
+                // Exactly one match: complete the command and add a space.
                 if (matches.size() == 1) {
                     String match = matches.first();
+
                     reader.getBuffer().write(
                             match.substring(partial.length()) + " "
                     );
+
                     lastTabPrefix[0] = null;
                     return true;
                 }
 
+                // Find the longest common prefix of all matches.
+                String commonPrefix = matches.first();
+
+                for (String match : matches) {
+                    int commonLength = 0;
+                    int limit = Math.min(
+                            commonPrefix.length(),
+                            match.length()
+                    );
+
+                    while (commonLength < limit
+                            && commonPrefix.charAt(commonLength)
+                                    == match.charAt(commonLength)) {
+                        commonLength++;
+                    }
+
+                    commonPrefix = commonPrefix.substring(0, commonLength);
+                }
+
+                // Extend the command if a longer common prefix exists.
+                if (commonPrefix.length() > partial.length()) {
+                    reader.getBuffer().write(
+                            commonPrefix.substring(partial.length())
+                    );
+
+                    lastTabPrefix[0] = null;
+                    return true;
+                }
+
+                // Preserve the previous double-TAB listing behaviour
+                // when no further common prefix is available.
                 boolean secondTab = partial.equals(lastTabPrefix[0]);
 
                 if (!secondTab) {
@@ -311,7 +345,6 @@ public class Main {
                     return true;
                 }
 
-                // Display matches on a new line and restore the original prompt.
                 terminal.writer().println();
                 terminal.writer().println(String.join("  ", matches));
                 terminal.writer().print("$ " + partial);
