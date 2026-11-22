@@ -240,11 +240,42 @@ public class Main {
                 String buffer = reader.getBuffer().toString();
                 int cursor = reader.getBuffer().cursor();
 
-                if (cursor != buffer.length()
-                        || buffer.chars().anyMatch(Character::isWhitespace)) {
+                if (cursor != buffer.length()) {
                     return false;
                 }
 
+                // Filename completion for arguments after the command.
+                int lastSpace = buffer.lastIndexOf(' ');
+
+                if (lastSpace >= 0) {
+                    String filenamePrefix = buffer.substring(lastSpace + 1);
+                    File currentDirectory = new File(".");
+                    File[] currentFiles = currentDirectory.listFiles();
+
+                    if (currentFiles != null) {
+                        List<String> filenameMatches = new ArrayList<>();
+
+                        for (File file : currentFiles) {
+                            if (file.isFile()
+                                    && file.getName().startsWith(filenamePrefix)) {
+                                filenameMatches.add(file.getName());
+                            }
+                        }
+
+                        if (filenameMatches.size() == 1) {
+                            String match = filenameMatches.get(0);
+
+                            reader.getBuffer().write(
+                                    match.substring(filenamePrefix.length()) + " "
+                            );
+                        }
+                    }
+
+                    lastTabPrefix[0] = null;
+                    return true;
+                }
+
+                // Command completion
                 String partial = buffer;
                 TreeSet<String> matches = new TreeSet<>();
 
@@ -293,7 +324,7 @@ public class Main {
                     return true;
                 }
 
-                // Exactly one match: complete the command and add a space.
+                // Exactly one command match.
                 if (matches.size() == 1) {
                     String match = matches.first();
 
@@ -305,15 +336,12 @@ public class Main {
                     return true;
                 }
 
-                // Find the longest common prefix of all matches.
+                // Find the longest common prefix.
                 String commonPrefix = matches.first();
 
                 for (String match : matches) {
                     int commonLength = 0;
-                    int limit = Math.min(
-                            commonPrefix.length(),
-                            match.length()
-                    );
+                    int limit = Math.min(commonPrefix.length(), match.length());
 
                     while (commonLength < limit
                             && commonPrefix.charAt(commonLength)
@@ -324,7 +352,6 @@ public class Main {
                     commonPrefix = commonPrefix.substring(0, commonLength);
                 }
 
-                // Extend the command if a longer common prefix exists.
                 if (commonPrefix.length() > partial.length()) {
                     reader.getBuffer().write(
                             commonPrefix.substring(partial.length())
@@ -334,8 +361,7 @@ public class Main {
                     return true;
                 }
 
-                // Preserve the previous double-TAB listing behaviour
-                // when no further common prefix is available.
+                // Double-TAB listing when no longer common prefix exists.
                 boolean secondTab = partial.equals(lastTabPrefix[0]);
 
                 if (!secondTab) {
