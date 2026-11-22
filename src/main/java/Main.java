@@ -4,7 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.jline.reader.Candidate;
 import org.jline.reader.Completer;
@@ -233,7 +235,7 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
 
-        // Builtin command autocompletion
+        // Complete builtins and executable files found in PATH.
         Completer completer = (reader, line, candidates) -> {
             if (line.wordIndex() == 0) {
                 String partial = line.word();
@@ -244,6 +246,39 @@ public class Main {
 
                 if ("exit".startsWith(partial)) {
                     candidates.add(new Candidate("exit"));
+                }
+
+                String pathEnv = System.getenv("PATH");
+
+                if (pathEnv != null) {
+                    Set<String> added = new HashSet<>();
+
+                    for (String path : pathEnv.split(
+                            java.util.regex.Pattern.quote(File.pathSeparator))) {
+
+                        File directory = new File(path);
+
+                        if (!directory.isDirectory() || !directory.canRead()) {
+                            continue;
+                        }
+
+                        File[] files = directory.listFiles();
+
+                        if (files == null) {
+                            continue;
+                        }
+
+                        for (File file : files) {
+                            String name = file.getName();
+
+                            if (file.isFile()
+                                    && file.canExecute()
+                                    && name.startsWith(partial)
+                                    && added.add(name)) {
+                                candidates.add(new Candidate(name));
+                            }
+                        }
+                    }
                 }
             }
         };
@@ -259,7 +294,6 @@ public class Main {
                     .build();
 
             while (true) {
-
                 String input;
 
                 try {
@@ -286,7 +320,6 @@ public class Main {
                 List<String> commandTokens = new ArrayList<>();
 
                 for (int i = 0; i < tokens.size(); i++) {
-
                     String token = tokens.get(i);
 
                     if (token.equals(">")
@@ -297,7 +330,6 @@ public class Main {
                             || token.equals("2>>")) {
 
                         if (i + 1 < tokens.size()) {
-
                             String filename = tokens.get(++i);
 
                             if (token.equals("2>") || token.equals("2>>")) {
@@ -308,7 +340,6 @@ public class Main {
                                 appendOutput = token.equals(">>")
                                         || token.equals("1>>");
                             }
-
                         } else {
                             System.out.println(
                                     "syntax error: expected filename after redirection"
@@ -317,7 +348,6 @@ public class Main {
                             commandTokens.clear();
                             break;
                         }
-
                     } else {
                         commandTokens.add(token);
                     }
@@ -337,7 +367,6 @@ public class Main {
 
                 // Echo builtin
                 else if (command.equals("echo")) {
-
                     StringBuilder output = new StringBuilder();
 
                     for (int i = 1; i < commandTokens.size(); i++) {
@@ -361,7 +390,6 @@ public class Main {
 
                 // Type builtin
                 else if (command.equals("type")) {
-
                     prepareErrorFile(errorFile, appendError);
 
                     if (commandTokens.size() < 2) {
@@ -393,14 +421,11 @@ public class Main {
 
                 // External commands
                 else {
-
                     File executable = findExecutable(command);
 
                     if (executable == null) {
                         String error = command + ": command not found\n";
-
                         writeError(error, errorFile, appendError);
-
                         continue;
                     }
 
