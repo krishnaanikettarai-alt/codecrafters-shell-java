@@ -4,15 +4,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.TreeSet;
 
-import org.jline.reader.Candidate;
-import org.jline.reader.Completer;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.Reference;
 import org.jline.reader.UserInterruptException;
 import org.jline.reader.impl.DefaultParser;
 import org.jline.terminal.Terminal;
@@ -20,7 +18,6 @@ import org.jline.terminal.TerminalBuilder;
 
 public class Main {
 
-    // Custom JLine parser: preserve backslashes for our shell parser
     private static class ShellParser extends DefaultParser {
         @Override
         public boolean isEscapeChar(char ch) {
@@ -54,7 +51,6 @@ public class Main {
         return null;
     }
 
-    // Parse commands, quotes, backslashes and redirection operators
     private static List<String> parseCommand(String input) {
         List<String> args = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -65,7 +61,6 @@ public class Main {
         for (int i = 0; i < input.length(); i++) {
             char ch = input.charAt(i);
 
-            // Backslash handling inside double quotes
             if (ch == '\\' && inDoubleQuotes) {
                 if (i + 1 < input.length()) {
                     char next = input.charAt(i + 1);
@@ -83,7 +78,6 @@ public class Main {
                 continue;
             }
 
-            // Backslash escaping outside quotes
             if (ch == '\\' && !inSingleQuotes && !inDoubleQuotes) {
                 if (i + 1 < input.length()) {
                     current.append(input.charAt(i + 1));
@@ -95,19 +89,16 @@ public class Main {
                 continue;
             }
 
-            // Single quotes
             if (ch == '\'' && !inDoubleQuotes) {
                 inSingleQuotes = !inSingleQuotes;
                 continue;
             }
 
-            // Double quotes
             if (ch == '"' && !inSingleQuotes) {
                 inDoubleQuotes = !inDoubleQuotes;
                 continue;
             }
 
-            // Output and error redirection operators
             if (ch == '>' && !inSingleQuotes && !inDoubleQuotes) {
                 boolean append = i + 1 < input.length()
                         && input.charAt(i + 1) == '>';
@@ -134,7 +125,6 @@ public class Main {
                 continue;
             }
 
-            // Argument separator
             if (Character.isWhitespace(ch)
                     && !inSingleQuotes
                     && !inDoubleQuotes) {
@@ -235,24 +225,40 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
 
-        // Complete builtins and executable files found in PATH.
-        Completer completer = (reader, line, candidates) -> {
-            if (line.wordIndex() == 0) {
-                String partial = line.word();
+        final String[] lastTabPrefix = {null};
+
+        try (Terminal terminal = TerminalBuilder.builder()
+                .system(true)
+                .build()) {
+
+            LineReader reader = LineReaderBuilder.builder()
+                    .terminal(terminal)
+                    .parser(new ShellParser())
+                    .build();
+
+            reader.getWidgets().put("path-complete", () -> {
+                String buffer = reader.getBuffer().toString();
+                int cursor = reader.getBuffer().cursor();
+
+                if (cursor != buffer.length()
+                        || buffer.chars().anyMatch(Character::isWhitespace)) {
+                    return false;
+                }
+
+                String partial = buffer;
+                TreeSet<String> matches = new TreeSet<>();
 
                 if ("echo".startsWith(partial)) {
-                    candidates.add(new Candidate("echo"));
+                    matches.add("echo");
                 }
 
                 if ("exit".startsWith(partial)) {
-                    candidates.add(new Candidate("exit"));
+                    matches.add("exit");
                 }
 
                 String pathEnv = System.getenv("PATH");
 
                 if (pathEnv != null) {
-                    Set<String> added = new HashSet<>();
-
                     for (String path : pathEnv.split(
                             java.util.regex.Pattern.quote(File.pathSeparator))) {
 
@@ -273,25 +279,50 @@ public class Main {
 
                             if (file.isFile()
                                     && file.canExecute()
-                                    && name.startsWith(partial)
-                                    && added.add(name)) {
-                                candidates.add(new Candidate(name));
+                                    && name.startsWith(partial)) {
+                                matches.add(name);
                             }
                         }
                     }
                 }
-            }
-        };
 
-        try (Terminal terminal = TerminalBuilder.builder()
-                .system(true)
-                .build()) {
+                if (matches.isEmpty()) {
+                    terminal.writer().write('\007');
+                    terminal.writer().flush();
+                    lastTabPrefix[0] = null;
+                    return true;
+                }
 
-            LineReader reader = LineReaderBuilder.builder()
-                    .terminal(terminal)
-                    .parser(new ShellParser())
-                    .completer(completer)
-                    .build();
+                if (matches.size() == 1) {
+                    String match = matches.first();
+                    reader.getBuffer().write(
+                            match.substring(partial.length()) + " "
+                    );
+                    lastTabPrefix[0] = null;
+                    return true;
+                }
+
+                boolean secondTab = partial.equals(lastTabPrefix[0]);
+
+                if (!secondTab) {
+                    terminal.writer().write('\007');
+                    terminal.writer().flush();
+                    lastTabPrefix[0] = partial;
+                    return true;
+                }
+
+                // Display matches on a new line and restore the original prompt.
+                terminal.writer().println();
+                terminal.writer().println(String.join("  ", matches));
+                terminal.writer().print("$ " + partial);
+                terminal.writer().flush();
+
+                lastTabPrefix[0] = null;
+                return true;
+            });
+
+            reader.getKeyMaps().get(LineReader.MAIN)
+                    .bind(new Reference("path-complete"), "\t");
 
             while (true) {
                 String input;
@@ -310,7 +341,6 @@ public class Main {
                     continue;
                 }
 
-                // Handle redirection
                 String outputFile = null;
                 String errorFile = null;
 
@@ -359,14 +389,10 @@ public class Main {
 
                 String command = commandTokens.get(0);
 
-                // Exit builtin
                 if (command.equals("exit")) {
                     prepareErrorFile(errorFile, appendError);
                     break;
-                }
-
-                // Echo builtin
-                else if (command.equals("echo")) {
+                } else if (command.equals("echo")) {
                     StringBuilder output = new StringBuilder();
 
                     for (int i = 1; i < commandTokens.size(); i++) {
@@ -386,10 +412,7 @@ public class Main {
                             outputFile,
                             appendOutput
                     );
-                }
-
-                // Type builtin
-                else if (command.equals("type")) {
+                } else if (command.equals("type")) {
                     prepareErrorFile(errorFile, appendError);
 
                     if (commandTokens.size() < 2) {
@@ -417,10 +440,7 @@ public class Main {
                             outputFile,
                             appendOutput
                     );
-                }
-
-                // External commands
-                else {
+                } else {
                     File executable = findExecutable(command);
 
                     if (executable == null) {
@@ -429,10 +449,8 @@ public class Main {
                         continue;
                     }
 
-                    // Preserve original command name as argv[0]
                     ProcessBuilder pb = new ProcessBuilder(commandTokens);
 
-                    // Configure stdout
                     if (outputFile != null) {
                         if (appendOutput) {
                             pb.redirectOutput(
@@ -447,7 +465,6 @@ public class Main {
                         pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     }
 
-                    // Configure stderr
                     if (errorFile != null) {
                         if (appendError) {
                             pb.redirectError(
