@@ -245,7 +245,7 @@ public class Main {
                     return false;
                 }
 
-                // Filename completion for arguments, including nested paths.
+                // Filename and directory completion for arguments.
                 int lastSpace = buffer.lastIndexOf(' ');
 
                 if (lastSpace >= 0) {
@@ -265,38 +265,43 @@ public class Main {
                             : new File(directoryPath);
 
                     File[] entries = directory.listFiles();
-                    List<String> filenameMatches = new ArrayList<>();
+                    List<File> matches = new ArrayList<>();
 
                     if (entries != null) {
                         for (File entry : entries) {
                             if (entry.getName().startsWith(filenamePrefix)) {
-                                filenameMatches.add(entry.getName());
+                                matches.add(entry);
                             }
                         }
                     }
 
-                    if (filenameMatches.size() == 1) {
+                    if (matches.size() == 1) {
+                        File match = matches.get(0);
+
                         String completedPath =
-                                directoryPath + filenameMatches.get(0);
+                                directoryPath + match.getName();
+
+                        // Directories receive a slash; files receive a space.
+                        String suffix = match.isDirectory() ? "/" : " ";
 
                         reader.getBuffer().backspace(partialPath.length());
-                        reader.getBuffer().write(completedPath + " ");
+                        reader.getBuffer().write(completedPath + suffix);
                     }
 
                     lastTabPrefix[0] = null;
                     return true;
                 }
 
-                // Command completion
+                // Command completion.
                 String partial = buffer;
-                TreeSet<String> matches = new TreeSet<>();
+                TreeSet<String> commandMatches = new TreeSet<>();
 
                 if ("echo".startsWith(partial)) {
-                    matches.add("echo");
+                    commandMatches.add("echo");
                 }
 
                 if ("exit".startsWith(partial)) {
-                    matches.add("exit");
+                    commandMatches.add("exit");
                 }
 
                 String pathEnv = System.getenv("PATH");
@@ -323,13 +328,13 @@ public class Main {
                             if (file.isFile()
                                     && file.canExecute()
                                     && name.startsWith(partial)) {
-                                matches.add(name);
+                                commandMatches.add(name);
                             }
                         }
                     }
                 }
 
-                if (matches.isEmpty()) {
+                if (commandMatches.isEmpty()) {
                     terminal.writer().write('\007');
                     terminal.writer().flush();
                     lastTabPrefix[0] = null;
@@ -337,8 +342,8 @@ public class Main {
                 }
 
                 // Exactly one command match.
-                if (matches.size() == 1) {
-                    String match = matches.first();
+                if (commandMatches.size() == 1) {
+                    String match = commandMatches.first();
 
                     reader.getBuffer().write(
                             match.substring(partial.length()) + " "
@@ -349,9 +354,9 @@ public class Main {
                 }
 
                 // Find the longest common prefix.
-                String commonPrefix = matches.first();
+                String commonPrefix = commandMatches.first();
 
-                for (String match : matches) {
+                for (String match : commandMatches) {
                     int commonLength = 0;
                     int limit = Math.min(commonPrefix.length(), match.length());
 
@@ -384,7 +389,7 @@ public class Main {
                 }
 
                 terminal.writer().println();
-                terminal.writer().println(String.join("  ", matches));
+                terminal.writer().println(String.join("  ", commandMatches));
                 terminal.writer().print("$ " + partial);
                 terminal.writer().flush();
 
