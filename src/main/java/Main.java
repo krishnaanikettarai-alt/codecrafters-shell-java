@@ -237,6 +237,7 @@ public class Main {
                     .build();
 
             reader.getWidgets().put("path-complete", () -> {
+
                 String buffer = reader.getBuffer().toString();
                 int cursor = reader.getBuffer().cursor();
 
@@ -244,31 +245,42 @@ public class Main {
                     return false;
                 }
 
-                // Filename completion for arguments after the command.
+                // Filename completion for arguments, including nested paths.
                 int lastSpace = buffer.lastIndexOf(' ');
 
                 if (lastSpace >= 0) {
-                    String filenamePrefix = buffer.substring(lastSpace + 1);
-                    File currentDirectory = new File(".");
-                    File[] currentFiles = currentDirectory.listFiles();
+                    String partialPath = buffer.substring(lastSpace + 1);
+                    int lastSlash = partialPath.lastIndexOf('/');
 
-                    if (currentFiles != null) {
-                        List<String> filenameMatches = new ArrayList<>();
+                    String directoryPath = lastSlash >= 0
+                            ? partialPath.substring(0, lastSlash + 1)
+                            : "";
 
-                        for (File file : currentFiles) {
-                            if (file.isFile()
-                                    && file.getName().startsWith(filenamePrefix)) {
-                                filenameMatches.add(file.getName());
+                    String filenamePrefix = lastSlash >= 0
+                            ? partialPath.substring(lastSlash + 1)
+                            : partialPath;
+
+                    File directory = directoryPath.isEmpty()
+                            ? new File(".")
+                            : new File(directoryPath);
+
+                    File[] entries = directory.listFiles();
+                    List<String> filenameMatches = new ArrayList<>();
+
+                    if (entries != null) {
+                        for (File entry : entries) {
+                            if (entry.getName().startsWith(filenamePrefix)) {
+                                filenameMatches.add(entry.getName());
                             }
                         }
+                    }
 
-                        if (filenameMatches.size() == 1) {
-                            String match = filenameMatches.get(0);
+                    if (filenameMatches.size() == 1) {
+                        String completedPath =
+                                directoryPath + filenameMatches.get(0);
 
-                            reader.getBuffer().write(
-                                    match.substring(filenamePrefix.length()) + " "
-                            );
-                        }
+                        reader.getBuffer().backspace(partialPath.length());
+                        reader.getBuffer().write(completedPath + " ");
                     }
 
                     lastTabPrefix[0] = null;
@@ -451,6 +463,7 @@ public class Main {
                 if (command.equals("exit")) {
                     prepareErrorFile(errorFile, appendError);
                     break;
+
                 } else if (command.equals("echo")) {
                     StringBuilder output = new StringBuilder();
 
@@ -471,6 +484,7 @@ public class Main {
                             outputFile,
                             appendOutput
                     );
+
                 } else if (command.equals("type")) {
                     prepareErrorFile(errorFile, appendError);
 
@@ -499,6 +513,7 @@ public class Main {
                             outputFile,
                             appendOutput
                     );
+
                 } else {
                     File executable = findExecutable(command);
 
