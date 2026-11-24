@@ -287,13 +287,50 @@ public class Main {
                         reader.getBuffer().backspace(partialPath.length());
                         reader.getBuffer().write(completedPath + suffix);
 
+                        lastTabPrefix[0] = null;
+
                     } else if (matches.isEmpty()) {
                         // No match: leave input unchanged and ring the bell.
                         System.out.write('\007');
                         System.out.flush();
+
+                        lastTabPrefix[0] = null;
+
+                    } else {
+                        // Multiple matches: first TAB rings the bell.
+                        boolean secondTab = buffer.equals(lastTabPrefix[0]);
+
+                        if (!secondTab) {
+                            System.out.write('\007');
+                            System.out.flush();
+
+                            lastTabPrefix[0] = buffer;
+
+                        } else {
+                            // Sort matches alphabetically and mark directories.
+                            TreeSet<String> displayMatches = new TreeSet<>();
+
+                            for (File match : matches) {
+                                String name = match.getName();
+
+                                if (match.isDirectory()) {
+                                    name += "/";
+                                }
+
+                                displayMatches.add(name);
+                            }
+
+                            terminal.writer().println();
+                            terminal.writer().println(
+                                    String.join("  ", displayMatches)
+                            );
+                            terminal.writer().print("$ " + buffer);
+                            terminal.writer().flush();
+
+                            lastTabPrefix[0] = null;
+                        }
                     }
 
-                    lastTabPrefix[0] = null;
                     return true;
                 }
 
