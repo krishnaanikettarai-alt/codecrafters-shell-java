@@ -286,6 +286,11 @@ public class Main {
 
                         reader.getBuffer().backspace(partialPath.length());
                         reader.getBuffer().write(completedPath + suffix);
+
+                    } else if (matches.isEmpty()) {
+                        // No match: leave input unchanged and ring the bell.
+                        System.out.write('\007');
+                        System.out.flush();
                     }
 
                     lastTabPrefix[0] = null;
