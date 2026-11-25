@@ -275,62 +275,86 @@ public class Main {
                         }
                     }
 
+                    // Sort entry names without completion suffixes.
+                    matches.sort((a, b) -> a.getName().compareTo(b.getName()));
+
+                    // One match: complete it and add the appropriate suffix.
                     if (matches.size() == 1) {
                         File match = matches.get(0);
-
-                        String completedPath =
-                                directoryPath + match.getName();
-
-                        // Directories receive a slash; files receive a space.
+                        String completedPath = directoryPath + match.getName();
                         String suffix = match.isDirectory() ? "/" : " ";
 
                         reader.getBuffer().backspace(partialPath.length());
                         reader.getBuffer().write(completedPath + suffix);
-
                         lastTabPrefix[0] = null;
+                        return true;
+                    }
 
-                    } else if (matches.isEmpty()) {
-                        // No match: leave input unchanged and ring the bell.
-                        System.out.write('\007');
-                        System.out.flush();
+                    // Multiple matches: calculate LCP from entry names.
+                    if (matches.size() > 1) {
+                        String commonPrefix = matches.get(0).getName();
 
-                        lastTabPrefix[0] = null;
+                        for (File match : matches) {
+                            String name = match.getName();
+                            int commonLength = 0;
+                            int limit = Math.min(commonPrefix.length(), name.length());
 
-                    } else {
-                        // Multiple matches: first TAB rings the bell.
+                            while (commonLength < limit
+                                    && commonPrefix.charAt(commonLength)
+                                            == name.charAt(commonLength)) {
+                                commonLength++;
+                            }
+
+                            commonPrefix = commonPrefix.substring(0, commonLength);
+                        }
+
+                        // Complete to LCP only if it extends the current prefix.
+                        // Do not add '/' or space while multiple matches remain.
+                        if (commonPrefix.length() > filenamePrefix.length()) {
+                            String completedPath = directoryPath + commonPrefix;
+
+                            reader.getBuffer().backspace(partialPath.length());
+                            reader.getBuffer().write(completedPath);
+
+                            lastTabPrefix[0] = null;
+                            return true;
+                        }
+
+                        // No additional LCP: first TAB rings, second lists.
                         boolean secondTab = buffer.equals(lastTabPrefix[0]);
 
                         if (!secondTab) {
-                            System.out.write('\007');
-                            System.out.flush();
-
+                            terminal.writer().write('\007');
+                            terminal.writer().flush();
                             lastTabPrefix[0] = buffer;
+                            return true;
+                        }
 
-                        } else {
-                            // Sort matches alphabetically and mark directories.
-                            TreeSet<String> displayMatches = new TreeSet<>();
+                        TreeSet<String> displayMatches = new TreeSet<>();
 
-                            for (File match : matches) {
-                                String name = match.getName();
+                        for (File match : matches) {
+                            String name = match.getName();
 
-                                if (match.isDirectory()) {
-                                    name += "/";
-                                }
-
-                                displayMatches.add(name);
+                            if (match.isDirectory()) {
+                                name += "/";
                             }
 
-                            terminal.writer().println();
-                            terminal.writer().println(
-                                    String.join("  ", displayMatches)
-                            );
-                            terminal.writer().print("$ " + buffer);
-                            terminal.writer().flush();
-
-                            lastTabPrefix[0] = null;
+                            displayMatches.add(name);
                         }
+
+                        terminal.writer().println();
+                        terminal.writer().println(String.join("  ", displayMatches));
+                        terminal.writer().print("$ " + buffer);
+                        terminal.writer().flush();
+
+                        lastTabPrefix[0] = null;
+                        return true;
                     }
 
+                    // No match: leave input unchanged and ring the bell.
+                    terminal.writer().write('\007');
+                    terminal.writer().flush();
+                    lastTabPrefix[0] = null;
                     return true;
                 }
 
@@ -395,7 +419,7 @@ public class Main {
                     return true;
                 }
 
-                // Find the longest common prefix.
+                // Find the longest common prefix of command matches.
                 String commonPrefix = commandMatches.first();
 
                 for (String match : commandMatches) {
