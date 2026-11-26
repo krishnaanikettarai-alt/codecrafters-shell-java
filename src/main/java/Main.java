@@ -1,3 +1,4 @@
+
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -275,10 +276,9 @@ public class Main {
                         }
                     }
 
-                    // Sort entry names without completion suffixes.
+                    // Sort by entry name, without the completion suffix.
                     matches.sort((a, b) -> a.getName().compareTo(b.getName()));
 
-                    // One match: complete it and add the appropriate suffix.
                     if (matches.size() == 1) {
                         File match = matches.get(0);
                         String completedPath = directoryPath + match.getName();
@@ -290,7 +290,6 @@ public class Main {
                         return true;
                     }
 
-                    // Multiple matches: calculate LCP from entry names.
                     if (matches.size() > 1) {
                         String commonPrefix = matches.get(0).getName();
 
@@ -308,19 +307,14 @@ public class Main {
                             commonPrefix = commonPrefix.substring(0, commonLength);
                         }
 
-                        // Complete to LCP only if it extends the current prefix.
-                        // Do not add '/' or space while multiple matches remain.
                         if (commonPrefix.length() > filenamePrefix.length()) {
                             String completedPath = directoryPath + commonPrefix;
-
                             reader.getBuffer().backspace(partialPath.length());
                             reader.getBuffer().write(completedPath);
-
                             lastTabPrefix[0] = null;
                             return true;
                         }
 
-                        // No additional LCP: first TAB rings, second lists.
                         boolean secondTab = buffer.equals(lastTabPrefix[0]);
 
                         if (!secondTab) {
@@ -346,12 +340,10 @@ public class Main {
                         terminal.writer().println(String.join("  ", displayMatches));
                         terminal.writer().print("$ " + buffer);
                         terminal.writer().flush();
-
                         lastTabPrefix[0] = null;
                         return true;
                     }
 
-                    // No match: leave input unchanged and ring the bell.
                     terminal.writer().write('\007');
                     terminal.writer().flush();
                     lastTabPrefix[0] = null;
@@ -419,7 +411,7 @@ public class Main {
                     return true;
                 }
 
-                // Find the longest common prefix of command matches.
+                // Find the longest common prefix.
                 String commonPrefix = commandMatches.first();
 
                 for (String match : commandMatches) {
@@ -584,6 +576,17 @@ public class Main {
                             outputFile,
                             appendOutput
                     );
+
+                } else if (command.equals("complete")) {
+                    if (commandTokens.size() >= 3
+                            && commandTokens.get(1).equals("-p")) {
+
+                        String completionCommand = commandTokens.get(2);
+                        String error = "complete: " + completionCommand
+                                + ": no completion specification\n";
+
+                        writeError(error, errorFile, appendError);
+                    }
 
                 } else {
                     File executable = findExecutable(command);
