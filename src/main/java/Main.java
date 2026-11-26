@@ -1,4 +1,3 @@
-
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -28,7 +27,8 @@ public class Main {
     private static boolean isBuiltin(String command) {
         return command.equals("echo")
                 || command.equals("exit")
-                || command.equals("type");
+                || command.equals("type")
+                || command.equals("complete");
     }
 
     private static File findExecutable(String command) {
