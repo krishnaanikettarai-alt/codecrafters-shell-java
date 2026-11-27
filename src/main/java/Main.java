@@ -59,15 +59,26 @@ public class Main {
             String completerPath,
             String commandName,
             String currentWord,
-            String previousWord
+            String previousWord,
+            String compLine,
+            int compPoint
     ) {
         try {
-            Process process = new ProcessBuilder(
+            ProcessBuilder processBuilder = new ProcessBuilder(
                     completerPath,
                     commandName,
                     currentWord,
                     previousWord
-            )
+            );
+
+            // These variables belong only to the completer process.
+            processBuilder.environment().put("COMP_LINE", compLine);
+            processBuilder.environment().put(
+                    "COMP_POINT",
+                    String.valueOf(compPoint)
+            );
+
+            Process process = processBuilder
                     .redirectError(ProcessBuilder.Redirect.INHERIT)
                     .start();
 
@@ -77,6 +88,10 @@ public class Main {
             );
 
             process.waitFor();
+
+            if (output.isEmpty()) {
+                return null;
+            }
 
             String candidate = output.lines()
                     .findFirst()
@@ -286,43 +301,40 @@ public class Main {
                     return false;
                 }
 
-                // Invoke the registered completer with command context.
-                int completerSpace = buffer.lastIndexOf(' ');
-
-                if (completerSpace >= 0) {
-                    String commandPart =
-                            buffer.substring(0, completerSpace).trim();
-                    String currentWord =
-                            buffer.substring(completerSpace + 1);
-
-                    List<String> enteredTokens =
-                            parseCommand(commandPart);
+                // Invoke the registered completer whenever the line contains
+                // a command followed by a space, including a partial word.
+                if (buffer.contains(" ")) {
+                    int lastSpace = buffer.lastIndexOf(' ');
+                    String commandPart = buffer.substring(0, lastSpace);
+                    String currentWord = buffer.substring(lastSpace + 1);
+                    List<String> enteredTokens = parseCommand(commandPart);
 
                     if (!enteredTokens.isEmpty()) {
-                        String enteredCommand = enteredTokens.get(0);
-                        String completerPath =
-                                completionSpecs.get(enteredCommand);
+                        String commandName = enteredTokens.get(0);
+                        String completerPath = completionSpecs.get(commandName);
 
                         if (completerPath != null) {
-                            String previousWord = "";
+                            String previousWord = enteredTokens.size() > 1
+                                    ? enteredTokens.get(enteredTokens.size() - 1)
+                                    : "";
 
-                            if (enteredTokens.size() > 1) {
-                                previousWord = enteredTokens.get(
-                                        enteredTokens.size() - 1
-                                );
-                            }
+                            // COMP_POINT is a UTF-8 byte offset, not a Java
+                            // String character count. The cursor is at the end
+                            // here because of the guard above.
+                            int compPoint = buffer.substring(0, cursor)
+                                    .getBytes(StandardCharsets.UTF_8).length;
 
                             String candidate = invokeCompleter(
                                     completerPath,
-                                    enteredCommand,
+                                    commandName,
                                     currentWord,
-                                    previousWord
+                                    previousWord,
+                                    buffer,
+                                    compPoint
                             );
 
                             if (candidate != null) {
-                                reader.getBuffer().backspace(
-                                        currentWord.length()
-                                );
+                                reader.getBuffer().backspace(currentWord.length());
                                 reader.getBuffer().write(candidate + " ");
                             } else {
                                 // Empty output: ring bell and leave input
