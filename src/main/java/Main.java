@@ -55,9 +55,19 @@ public class Main {
         return null;
     }
 
-    private static String invokeCompleter(String completerPath) {
+    private static String invokeCompleter(
+            String completerPath,
+            String commandName,
+            String currentWord,
+            String previousWord
+    ) {
         try {
-            Process process = new ProcessBuilder(completerPath)
+            Process process = new ProcessBuilder(
+                    completerPath,
+                    commandName,
+                    currentWord,
+                    previousWord
+            )
                     .redirectError(ProcessBuilder.Redirect.INHERIT)
                     .start();
 
@@ -67,10 +77,6 @@ public class Main {
             );
 
             process.waitFor();
-
-            if (output.isEmpty()) {
-                return null;
-            }
 
             String candidate = output.lines()
                     .findFirst()
@@ -280,10 +286,17 @@ public class Main {
                     return false;
                 }
 
-                // Invoke registered completer for "command ".
-                if (buffer.endsWith(" ")) {
+                // Invoke the registered completer with command context.
+                int completerSpace = buffer.lastIndexOf(' ');
+
+                if (completerSpace >= 0) {
+                    String commandPart =
+                            buffer.substring(0, completerSpace).trim();
+                    String currentWord =
+                            buffer.substring(completerSpace + 1);
+
                     List<String> enteredTokens =
-                            parseCommand(buffer.trim());
+                            parseCommand(commandPart);
 
                     if (!enteredTokens.isEmpty()) {
                         String enteredCommand = enteredTokens.get(0);
@@ -291,10 +304,25 @@ public class Main {
                                 completionSpecs.get(enteredCommand);
 
                         if (completerPath != null) {
-                            String candidate =
-                                    invokeCompleter(completerPath);
+                            String previousWord = "";
+
+                            if (enteredTokens.size() > 1) {
+                                previousWord = enteredTokens.get(
+                                        enteredTokens.size() - 1
+                                );
+                            }
+
+                            String candidate = invokeCompleter(
+                                    completerPath,
+                                    enteredCommand,
+                                    currentWord,
+                                    previousWord
+                            );
 
                             if (candidate != null) {
+                                reader.getBuffer().backspace(
+                                        currentWord.length()
+                                );
                                 reader.getBuffer().write(candidate + " ");
                             } else {
                                 // Empty output: ring bell and leave input
