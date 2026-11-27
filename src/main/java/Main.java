@@ -4,7 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeSet;
 
 import org.jline.reader.EndOfFileException;
@@ -17,6 +19,8 @@ import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 
 public class Main {
+
+    private static final Map<String, String> completionSpecs = new HashMap<>();
 
     private static class ShellParser extends DefaultParser {
         @Override
@@ -276,7 +280,6 @@ public class Main {
                         }
                     }
 
-                    // Sort by entry name, without the completion suffix.
                     matches.sort((a, b) -> a.getName().compareTo(b.getName()));
 
                     if (matches.size() == 1) {
@@ -399,7 +402,6 @@ public class Main {
                     return true;
                 }
 
-                // Exactly one command match.
                 if (commandMatches.size() == 1) {
                     String match = commandMatches.first();
 
@@ -411,7 +413,6 @@ public class Main {
                     return true;
                 }
 
-                // Find the longest common prefix.
                 String commonPrefix = commandMatches.first();
 
                 for (String match : commandMatches) {
@@ -436,7 +437,6 @@ public class Main {
                     return true;
                 }
 
-                // Double-TAB listing when no longer common prefix exists.
                 boolean secondTab = partial.equals(lastTabPrefix[0]);
 
                 if (!secondTab) {
@@ -578,14 +578,42 @@ public class Main {
                     );
 
                 } else if (command.equals("complete")) {
-                    if (commandTokens.size() >= 3
+                    if (commandTokens.size() >= 4
+                            && commandTokens.get(1).equals("-C")) {
+
+                        String completerPath = commandTokens.get(2);
+                        String completionCommand = commandTokens.get(3);
+
+                        completionSpecs.put(completionCommand, completerPath);
+                        prepareErrorFile(errorFile, appendError);
+
+                    } else if (commandTokens.size() >= 3
                             && commandTokens.get(1).equals("-p")) {
 
                         String completionCommand = commandTokens.get(2);
-                        String error = "complete: " + completionCommand
-                                + ": no completion specification\n";
+                        String completerPath = completionSpecs.get(
+                                completionCommand
+                        );
 
-                        writeError(error, errorFile, appendError);
+                        if (completerPath == null) {
+                            String error = "complete: " + completionCommand
+                                    + ": no completion specification\n";
+
+                            writeError(error, errorFile, appendError);
+                        } else {
+                            prepareErrorFile(errorFile, appendError);
+
+                            String output = "complete -C '" + completerPath
+                                    + "' " + completionCommand + "\n";
+
+                            outputResult(
+                                    output,
+                                    outputFile,
+                                    appendOutput
+                            );
+                        }
+                    } else {
+                        prepareErrorFile(errorFile, appendError);
                     }
 
                 } else {
