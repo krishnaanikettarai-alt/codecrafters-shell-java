@@ -78,6 +78,7 @@ public class Main {
                     .trim();
 
             return candidate.isEmpty() ? null : candidate;
+
         } catch (Exception e) {
             return null;
         }
@@ -279,7 +280,7 @@ public class Main {
                     return false;
                 }
 
-                // Invoke a registered completer for "command ".
+                // Invoke registered completer for "command ".
                 if (buffer.endsWith(" ")) {
                     List<String> enteredTokens =
                             parseCommand(buffer.trim());
@@ -295,9 +296,15 @@ public class Main {
 
                             if (candidate != null) {
                                 reader.getBuffer().write(candidate + " ");
-                                lastTabPrefix[0] = null;
-                                return true;
+                            } else {
+                                // Empty output: ring bell and leave input
+                                // unchanged. Do not fall back to file completion.
+                                terminal.writer().write('\007');
+                                terminal.writer().flush();
                             }
+
+                            lastTabPrefix[0] = null;
+                            return true;
                         }
                     }
                 }
