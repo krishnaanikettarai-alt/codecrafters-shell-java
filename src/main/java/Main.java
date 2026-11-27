@@ -20,7 +20,8 @@ import org.jline.terminal.TerminalBuilder;
 
 public class Main {
 
-    private static final Map<String, String> completionSpecs = new HashMap<>();
+    private static final Map<String, String> completionSpecs =
+            new HashMap<>();
 
     private static class ShellParser extends DefaultParser {
         @Override
@@ -43,9 +44,7 @@ public class Main {
             return null;
         }
 
-        String[] paths = pathEnv.split(File.pathSeparator);
-
-        for (String path : paths) {
+        for (String path : pathEnv.split(File.pathSeparator)) {
             File file = new File(path, command);
 
             if (file.exists() && file.isFile() && file.canExecute()) {
@@ -54,6 +53,34 @@ public class Main {
         }
 
         return null;
+    }
+
+    private static String invokeCompleter(String completerPath) {
+        try {
+            Process process = new ProcessBuilder(completerPath)
+                    .redirectError(ProcessBuilder.Redirect.INHERIT)
+                    .start();
+
+            String output = new String(
+                    process.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8
+            );
+
+            process.waitFor();
+
+            if (output.isEmpty()) {
+                return null;
+            }
+
+            String candidate = output.lines()
+                    .findFirst()
+                    .orElse("")
+                    .trim();
+
+            return candidate.isEmpty() ? null : candidate;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static List<String> parseCommand(String input) {
@@ -156,24 +183,25 @@ public class Main {
             boolean append
     ) throws Exception {
 
-        if (outputFile != null) {
-            if (append) {
-                Files.writeString(
-                        new File(outputFile).toPath(),
-                        output,
-                        StandardCharsets.UTF_8,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.APPEND
-                );
-            } else {
-                Files.writeString(
-                        new File(outputFile).toPath(),
-                        output,
-                        StandardCharsets.UTF_8
-                );
-            }
-        } else {
+        if (outputFile == null) {
             System.out.print(output);
+            return;
+        }
+
+        if (append) {
+            Files.writeString(
+                    new File(outputFile).toPath(),
+                    output,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            );
+        } else {
+            Files.writeString(
+                    new File(outputFile).toPath(),
+                    output,
+                    StandardCharsets.UTF_8
+            );
         }
     }
 
@@ -182,22 +210,24 @@ public class Main {
             boolean appendError
     ) throws Exception {
 
-        if (errorFile != null) {
-            if (appendError) {
-                Files.writeString(
-                        new File(errorFile).toPath(),
-                        "",
-                        StandardCharsets.UTF_8,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.APPEND
-                );
-            } else {
-                Files.writeString(
-                        new File(errorFile).toPath(),
-                        "",
-                        StandardCharsets.UTF_8
-                );
-            }
+        if (errorFile == null) {
+            return;
+        }
+
+        if (appendError) {
+            Files.writeString(
+                    new File(errorFile).toPath(),
+                    "",
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            );
+        } else {
+            Files.writeString(
+                    new File(errorFile).toPath(),
+                    "",
+                    StandardCharsets.UTF_8
+            );
         }
     }
 
@@ -207,29 +237,29 @@ public class Main {
             boolean appendError
     ) throws Exception {
 
-        if (errorFile != null) {
-            if (appendError) {
-                Files.writeString(
-                        new File(errorFile).toPath(),
-                        error,
-                        StandardCharsets.UTF_8,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.APPEND
-                );
-            } else {
-                Files.writeString(
-                        new File(errorFile).toPath(),
-                        error,
-                        StandardCharsets.UTF_8
-                );
-            }
-        } else {
+        if (errorFile == null) {
             System.err.print(error);
+            return;
+        }
+
+        if (appendError) {
+            Files.writeString(
+                    new File(errorFile).toPath(),
+                    error,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            );
+        } else {
+            Files.writeString(
+                    new File(errorFile).toPath(),
+                    error,
+                    StandardCharsets.UTF_8
+            );
         }
     }
 
     public static void main(String[] args) throws Exception {
-
         final String[] lastTabPrefix = {null};
 
         try (Terminal terminal = TerminalBuilder.builder()
@@ -242,7 +272,6 @@ public class Main {
                     .build();
 
             reader.getWidgets().put("path-complete", () -> {
-
                 String buffer = reader.getBuffer().toString();
                 int cursor = reader.getBuffer().cursor();
 
@@ -250,11 +279,36 @@ public class Main {
                     return false;
                 }
 
-                // Filename and directory completion for arguments.
+                // Invoke a registered completer for "command ".
+                if (buffer.endsWith(" ")) {
+                    List<String> enteredTokens =
+                            parseCommand(buffer.trim());
+
+                    if (!enteredTokens.isEmpty()) {
+                        String enteredCommand = enteredTokens.get(0);
+                        String completerPath =
+                                completionSpecs.get(enteredCommand);
+
+                        if (completerPath != null) {
+                            String candidate =
+                                    invokeCompleter(completerPath);
+
+                            if (candidate != null) {
+                                reader.getBuffer().write(candidate + " ");
+                                lastTabPrefix[0] = null;
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                // Filename and directory completion.
                 int lastSpace = buffer.lastIndexOf(' ');
 
                 if (lastSpace >= 0) {
-                    String partialPath = buffer.substring(lastSpace + 1);
+                    String partialPath =
+                            buffer.substring(lastSpace + 1);
+
                     int lastSlash = partialPath.lastIndexOf('/');
 
                     String directoryPath = lastSlash >= 0
@@ -274,21 +328,28 @@ public class Main {
 
                     if (entries != null) {
                         for (File entry : entries) {
-                            if (entry.getName().startsWith(filenamePrefix)) {
+                            if (entry.getName()
+                                    .startsWith(filenamePrefix)) {
                                 matches.add(entry);
                             }
                         }
                     }
 
-                    matches.sort((a, b) -> a.getName().compareTo(b.getName()));
+                    matches.sort(
+                            (a, b) -> a.getName().compareTo(b.getName())
+                    );
 
                     if (matches.size() == 1) {
                         File match = matches.get(0);
-                        String completedPath = directoryPath + match.getName();
+
+                        String completedPath =
+                                directoryPath + match.getName();
+
                         String suffix = match.isDirectory() ? "/" : " ";
 
                         reader.getBuffer().backspace(partialPath.length());
                         reader.getBuffer().write(completedPath + suffix);
+
                         lastTabPrefix[0] = null;
                         return true;
                     }
@@ -299,7 +360,11 @@ public class Main {
                         for (File match : matches) {
                             String name = match.getName();
                             int commonLength = 0;
-                            int limit = Math.min(commonPrefix.length(), name.length());
+
+                            int limit = Math.min(
+                                    commonPrefix.length(),
+                                    name.length()
+                            );
 
                             while (commonLength < limit
                                     && commonPrefix.charAt(commonLength)
@@ -307,22 +372,30 @@ public class Main {
                                 commonLength++;
                             }
 
-                            commonPrefix = commonPrefix.substring(0, commonLength);
+                            commonPrefix =
+                                    commonPrefix.substring(0, commonLength);
                         }
 
-                        if (commonPrefix.length() > filenamePrefix.length()) {
-                            String completedPath = directoryPath + commonPrefix;
+                        if (commonPrefix.length()
+                                > filenamePrefix.length()) {
+
+                            String completedPath =
+                                    directoryPath + commonPrefix;
+
                             reader.getBuffer().backspace(partialPath.length());
                             reader.getBuffer().write(completedPath);
+
                             lastTabPrefix[0] = null;
                             return true;
                         }
 
-                        boolean secondTab = buffer.equals(lastTabPrefix[0]);
+                        boolean secondTab =
+                                buffer.equals(lastTabPrefix[0]);
 
                         if (!secondTab) {
                             terminal.writer().write('\007');
                             terminal.writer().flush();
+
                             lastTabPrefix[0] = buffer;
                             return true;
                         }
@@ -340,15 +413,19 @@ public class Main {
                         }
 
                         terminal.writer().println();
-                        terminal.writer().println(String.join("  ", displayMatches));
+                        terminal.writer().println(
+                                String.join("  ", displayMatches)
+                        );
                         terminal.writer().print("$ " + buffer);
                         terminal.writer().flush();
+
                         lastTabPrefix[0] = null;
                         return true;
                     }
 
                     terminal.writer().write('\007');
                     terminal.writer().flush();
+
                     lastTabPrefix[0] = null;
                     return true;
                 }
@@ -357,23 +434,26 @@ public class Main {
                 String partial = buffer;
                 TreeSet<String> commandMatches = new TreeSet<>();
 
-                if ("echo".startsWith(partial)) {
-                    commandMatches.add("echo");
-                }
-
-                if ("exit".startsWith(partial)) {
-                    commandMatches.add("exit");
+                for (String builtin : List.of(
+                        "echo", "exit", "type", "complete"
+                )) {
+                    if (builtin.startsWith(partial)) {
+                        commandMatches.add(builtin);
+                    }
                 }
 
                 String pathEnv = System.getenv("PATH");
 
                 if (pathEnv != null) {
                     for (String path : pathEnv.split(
-                            java.util.regex.Pattern.quote(File.pathSeparator))) {
+                            java.util.regex.Pattern.quote(
+                                    File.pathSeparator
+                            ))) {
 
                         File directory = new File(path);
 
-                        if (!directory.isDirectory() || !directory.canRead()) {
+                        if (!directory.isDirectory()
+                                || !directory.canRead()) {
                             continue;
                         }
 
@@ -398,6 +478,7 @@ public class Main {
                 if (commandMatches.isEmpty()) {
                     terminal.writer().write('\007');
                     terminal.writer().flush();
+
                     lastTabPrefix[0] = null;
                     return true;
                 }
@@ -417,7 +498,11 @@ public class Main {
 
                 for (String match : commandMatches) {
                     int commonLength = 0;
-                    int limit = Math.min(commonPrefix.length(), match.length());
+
+                    int limit = Math.min(
+                            commonPrefix.length(),
+                            match.length()
+                    );
 
                     while (commonLength < limit
                             && commonPrefix.charAt(commonLength)
@@ -425,7 +510,8 @@ public class Main {
                         commonLength++;
                     }
 
-                    commonPrefix = commonPrefix.substring(0, commonLength);
+                    commonPrefix =
+                            commonPrefix.substring(0, commonLength);
                 }
 
                 if (commonPrefix.length() > partial.length()) {
@@ -437,17 +523,21 @@ public class Main {
                     return true;
                 }
 
-                boolean secondTab = partial.equals(lastTabPrefix[0]);
+                boolean secondTab =
+                        partial.equals(lastTabPrefix[0]);
 
                 if (!secondTab) {
                     terminal.writer().write('\007');
                     terminal.writer().flush();
+
                     lastTabPrefix[0] = partial;
                     return true;
                 }
 
                 terminal.writer().println();
-                terminal.writer().println(String.join("  ", commandMatches));
+                terminal.writer().println(
+                        String.join("  ", commandMatches)
+                );
                 terminal.writer().print("$ " + partial);
                 terminal.writer().flush();
 
@@ -496,7 +586,9 @@ public class Main {
                         if (i + 1 < tokens.size()) {
                             String filename = tokens.get(++i);
 
-                            if (token.equals("2>") || token.equals("2>>")) {
+                            if (token.equals("2>")
+                                    || token.equals("2>>")) {
+
                                 errorFile = filename;
                                 appendError = token.equals("2>>");
                             } else {
@@ -565,7 +657,8 @@ public class Main {
 
                         if (executable != null) {
                             output = cmd + " is "
-                                    + executable.getAbsolutePath() + "\n";
+                                    + executable.getAbsolutePath()
+                                    + "\n";
                         } else {
                             output = cmd + ": not found\n";
                         }
@@ -584,27 +677,35 @@ public class Main {
                         String completerPath = commandTokens.get(2);
                         String completionCommand = commandTokens.get(3);
 
-                        completionSpecs.put(completionCommand, completerPath);
+                        completionSpecs.put(
+                                completionCommand,
+                                completerPath
+                        );
+
                         prepareErrorFile(errorFile, appendError);
 
                     } else if (commandTokens.size() >= 3
                             && commandTokens.get(1).equals("-p")) {
 
                         String completionCommand = commandTokens.get(2);
-                        String completerPath = completionSpecs.get(
-                                completionCommand
-                        );
+
+                        String completerPath =
+                                completionSpecs.get(completionCommand);
 
                         if (completerPath == null) {
-                            String error = "complete: " + completionCommand
+                            String error = "complete: "
+                                    + completionCommand
                                     + ": no completion specification\n";
 
                             writeError(error, errorFile, appendError);
                         } else {
                             prepareErrorFile(errorFile, appendError);
 
-                            String output = "complete -C '" + completerPath
-                                    + "' " + completionCommand + "\n";
+                            String output = "complete -C '"
+                                    + completerPath
+                                    + "' "
+                                    + completionCommand
+                                    + "\n";
 
                             outputResult(
                                     output,
@@ -620,12 +721,15 @@ public class Main {
                     File executable = findExecutable(command);
 
                     if (executable == null) {
-                        String error = command + ": command not found\n";
+                        String error =
+                                command + ": command not found\n";
+
                         writeError(error, errorFile, appendError);
                         continue;
                     }
 
-                    ProcessBuilder pb = new ProcessBuilder(commandTokens);
+                    ProcessBuilder pb =
+                            new ProcessBuilder(commandTokens);
 
                     if (outputFile != null) {
                         if (appendOutput) {
@@ -638,7 +742,9 @@ public class Main {
                             pb.redirectOutput(new File(outputFile));
                         }
                     } else {
-                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                        pb.redirectOutput(
+                                ProcessBuilder.Redirect.INHERIT
+                        );
                     }
 
                     if (errorFile != null) {
@@ -652,10 +758,14 @@ public class Main {
                             pb.redirectError(new File(errorFile));
                         }
                     } else {
-                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        pb.redirectError(
+                                ProcessBuilder.Redirect.INHERIT
+                        );
                     }
 
-                    pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectInput(
+                            ProcessBuilder.Redirect.INHERIT
+                    );
 
                     Process process = pb.start();
                     process.waitFor();
