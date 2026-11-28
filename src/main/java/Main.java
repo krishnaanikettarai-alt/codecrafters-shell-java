@@ -55,7 +55,7 @@ public class Main {
         return null;
     }
 
-    private static String invokeCompleter(
+    private static List<String> invokeCompleter(
             String completerPath,
             String commandName,
             String currentWord,
@@ -71,7 +71,6 @@ public class Main {
                     previousWord
             );
 
-            // These variables belong only to the completer process.
             processBuilder.environment().put("COMP_LINE", compLine);
             processBuilder.environment().put(
                     "COMP_POINT",
@@ -89,19 +88,20 @@ public class Main {
 
             process.waitFor();
 
-            if (output.isEmpty()) {
-                return null;
+            TreeSet<String> sortedCandidates = new TreeSet<>();
+
+            for (String line : output.split("\\R")) {
+                String candidate = line.trim();
+
+                if (!candidate.isEmpty()) {
+                    sortedCandidates.add(candidate);
+                }
             }
 
-            String candidate = output.lines()
-                    .findFirst()
-                    .orElse("")
-                    .trim();
-
-            return candidate.isEmpty() ? null : candidate;
+            return new ArrayList<>(sortedCandidates);
 
         } catch (Exception e) {
-            return null;
+            return new ArrayList<>();
         }
     }
 
@@ -301,8 +301,7 @@ public class Main {
                     return false;
                 }
 
-                // Invoke the registered completer whenever the line contains
-                // a command followed by a space, including a partial word.
+                // Registered completer: command and its arguments.
                 if (buffer.contains(" ")) {
                     int lastSpace = buffer.lastIndexOf(' ');
                     String commandPart = buffer.substring(0, lastSpace);
@@ -314,17 +313,17 @@ public class Main {
                         String completerPath = completionSpecs.get(commandName);
 
                         if (completerPath != null) {
-                            String previousWord = enteredTokens.size() > 1
-                                    ? enteredTokens.get(enteredTokens.size() - 1)
-                                    : "";
+                            // Previous word must include the command itself
+                            // when completing its first argument.
+                            String previousWord = enteredTokens.get(
+                                    enteredTokens.size() - 1
+                            );
 
-                            // COMP_POINT is a UTF-8 byte offset, not a Java
-                            // String character count. The cursor is at the end
-                            // here because of the guard above.
+                            // COMP_POINT is the UTF-8 byte offset.
                             int compPoint = buffer.substring(0, cursor)
                                     .getBytes(StandardCharsets.UTF_8).length;
 
-                            String candidate = invokeCompleter(
+                            List<String> candidates = invokeCompleter(
                                     completerPath,
                                     commandName,
                                     currentWord,
@@ -333,17 +332,44 @@ public class Main {
                                     compPoint
                             );
 
-                            if (candidate != null) {
-                                reader.getBuffer().backspace(currentWord.length());
+                            if (candidates.size() == 1) {
+                                String candidate = candidates.get(0);
+
+                                reader.getBuffer().backspace(
+                                        currentWord.length()
+                                );
+
                                 reader.getBuffer().write(candidate + " ");
+                                lastTabPrefix[0] = null;
+
+                            } else if (candidates.size() > 1) {
+                                // Second TAB on the same input displays
+                                // all candidates, sorted alphabetically.
+                                if (buffer.equals(lastTabPrefix[0])) {
+                                    terminal.writer().println();
+                                    terminal.writer().println(
+                                            String.join("  ", candidates)
+                                    );
+                                    terminal.writer().print("$ " + buffer);
+                                    terminal.writer().flush();
+
+                                    lastTabPrefix[0] = null;
+                                } else {
+                                    // First TAB: ring the bell.
+                                    terminal.writer().write('\007');
+                                    terminal.writer().flush();
+
+                                    lastTabPrefix[0] = buffer;
+                                }
+
                             } else {
-                                // Empty output: ring bell and leave input
-                                // unchanged. Do not fall back to file completion.
+                                // No candidates.
                                 terminal.writer().write('\007');
                                 terminal.writer().flush();
+
+                                lastTabPrefix[0] = null;
                             }
 
-                            lastTabPrefix[0] = null;
                             return true;
                         }
                     }
