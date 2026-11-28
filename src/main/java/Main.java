@@ -9,10 +9,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
+import org.jline.reader.Candidate;
+import org.jline.reader.Completer;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
-import org.jline.reader.Reference;
 import org.jline.reader.UserInterruptException;
 import org.jline.reader.impl.DefaultParser;
 import org.jline.terminal.Terminal;
@@ -281,236 +282,21 @@ public class Main {
         }
     }
 
-    public static void main(String[] args) throws Exception {
-        final String[] lastTabPrefix = {null};
+    private static Completer createShellCompleter() {
+        return (reader, parsedLine, candidates) -> {
+            String buffer = parsedLine.line();
+            String currentWord = parsedLine.word();
+            List<String> words = parsedLine.words();
+            int wordIndex = parsedLine.wordIndex();
 
-        try (Terminal terminal = TerminalBuilder.builder()
-                .system(true)
-                .build()) {
-
-            LineReader reader = LineReaderBuilder.builder()
-                    .terminal(terminal)
-                    .parser(new ShellParser())
-                    .build();
-
-            reader.getWidgets().put("path-complete", () -> {
-                String buffer = reader.getBuffer().toString();
-                int cursor = reader.getBuffer().cursor();
-
-                if (cursor != buffer.length()) {
-                    return false;
-                }
-
-                // Registered completer: command and its arguments.
-                if (buffer.contains(" ")) {
-                    int lastSpace = buffer.lastIndexOf(' ');
-                    String commandPart = buffer.substring(0, lastSpace);
-                    String currentWord = buffer.substring(lastSpace + 1);
-                    List<String> enteredTokens = parseCommand(commandPart);
-
-                    if (!enteredTokens.isEmpty()) {
-                        String commandName = enteredTokens.get(0);
-                        String completerPath = completionSpecs.get(commandName);
-
-                        if (completerPath != null) {
-                            // Previous word must include the command itself
-                            // when completing its first argument.
-                            String previousWord = enteredTokens.get(
-                                    enteredTokens.size() - 1
-                            );
-
-                            // COMP_POINT is the UTF-8 byte offset.
-                            int compPoint = buffer.substring(0, cursor)
-                                    .getBytes(StandardCharsets.UTF_8).length;
-
-                            List<String> candidates = invokeCompleter(
-                                    completerPath,
-                                    commandName,
-                                    currentWord,
-                                    previousWord,
-                                    buffer,
-                                    compPoint
-                            );
-
-                            if (candidates.size() == 1) {
-                                String candidate = candidates.get(0);
-
-                                reader.getBuffer().backspace(
-                                        currentWord.length()
-                                );
-
-                                reader.getBuffer().write(candidate + " ");
-                                lastTabPrefix[0] = null;
-
-                            } else if (candidates.size() > 1) {
-                                // Second TAB on the same input displays
-                                // all candidates, sorted alphabetically.
-                                if (buffer.equals(lastTabPrefix[0])) {
-                                    terminal.writer().println();
-                                    terminal.writer().println(
-                                            String.join("  ", candidates)
-                                    );
-                                    terminal.writer().print("$ " + buffer);
-                                    terminal.writer().flush();
-
-                                    lastTabPrefix[0] = null;
-                                } else {
-                                    // First TAB: ring the bell.
-                                    terminal.writer().write('\007');
-                                    terminal.writer().flush();
-
-                                    lastTabPrefix[0] = buffer;
-                                }
-
-                            } else {
-                                // No candidates.
-                                terminal.writer().write('\007');
-                                terminal.writer().flush();
-
-                                lastTabPrefix[0] = null;
-                            }
-
-                            return true;
-                        }
-                    }
-                }
-
-                // Filename and directory completion.
-                int lastSpace = buffer.lastIndexOf(' ');
-
-                if (lastSpace >= 0) {
-                    String partialPath =
-                            buffer.substring(lastSpace + 1);
-
-                    int lastSlash = partialPath.lastIndexOf('/');
-
-                    String directoryPath = lastSlash >= 0
-                            ? partialPath.substring(0, lastSlash + 1)
-                            : "";
-
-                    String filenamePrefix = lastSlash >= 0
-                            ? partialPath.substring(lastSlash + 1)
-                            : partialPath;
-
-                    File directory = directoryPath.isEmpty()
-                            ? new File(".")
-                            : new File(directoryPath);
-
-                    File[] entries = directory.listFiles();
-                    List<File> matches = new ArrayList<>();
-
-                    if (entries != null) {
-                        for (File entry : entries) {
-                            if (entry.getName()
-                                    .startsWith(filenamePrefix)) {
-                                matches.add(entry);
-                            }
-                        }
-                    }
-
-                    matches.sort(
-                            (a, b) -> a.getName().compareTo(b.getName())
-                    );
-
-                    if (matches.size() == 1) {
-                        File match = matches.get(0);
-
-                        String completedPath =
-                                directoryPath + match.getName();
-
-                        String suffix = match.isDirectory() ? "/" : " ";
-
-                        reader.getBuffer().backspace(partialPath.length());
-                        reader.getBuffer().write(completedPath + suffix);
-
-                        lastTabPrefix[0] = null;
-                        return true;
-                    }
-
-                    if (matches.size() > 1) {
-                        String commonPrefix = matches.get(0).getName();
-
-                        for (File match : matches) {
-                            String name = match.getName();
-                            int commonLength = 0;
-
-                            int limit = Math.min(
-                                    commonPrefix.length(),
-                                    name.length()
-                            );
-
-                            while (commonLength < limit
-                                    && commonPrefix.charAt(commonLength)
-                                            == name.charAt(commonLength)) {
-                                commonLength++;
-                            }
-
-                            commonPrefix =
-                                    commonPrefix.substring(0, commonLength);
-                        }
-
-                        if (commonPrefix.length()
-                                > filenamePrefix.length()) {
-
-                            String completedPath =
-                                    directoryPath + commonPrefix;
-
-                            reader.getBuffer().backspace(partialPath.length());
-                            reader.getBuffer().write(completedPath);
-
-                            lastTabPrefix[0] = null;
-                            return true;
-                        }
-
-                        boolean secondTab =
-                                buffer.equals(lastTabPrefix[0]);
-
-                        if (!secondTab) {
-                            terminal.writer().write('\007');
-                            terminal.writer().flush();
-
-                            lastTabPrefix[0] = buffer;
-                            return true;
-                        }
-
-                        TreeSet<String> displayMatches = new TreeSet<>();
-
-                        for (File match : matches) {
-                            String name = match.getName();
-
-                            if (match.isDirectory()) {
-                                name += "/";
-                            }
-
-                            displayMatches.add(name);
-                        }
-
-                        terminal.writer().println();
-                        terminal.writer().println(
-                                String.join("  ", displayMatches)
-                        );
-                        terminal.writer().print("$ " + buffer);
-                        terminal.writer().flush();
-
-                        lastTabPrefix[0] = null;
-                        return true;
-                    }
-
-                    terminal.writer().write('\007');
-                    terminal.writer().flush();
-
-                    lastTabPrefix[0] = null;
-                    return true;
-                }
-
-                // Command completion.
-                String partial = buffer;
+            // Complete command names when the cursor is in the first word.
+            if (wordIndex == 0) {
                 TreeSet<String> commandMatches = new TreeSet<>();
 
                 for (String builtin : List.of(
                         "echo", "exit", "type", "complete"
                 )) {
-                    if (builtin.startsWith(partial)) {
+                    if (builtin.startsWith(currentWord)) {
                         commandMatches.add(builtin);
                     }
                 }
@@ -522,7 +308,6 @@ public class Main {
                             java.util.regex.Pattern.quote(
                                     File.pathSeparator
                             ))) {
-
                         File directory = new File(path);
 
                         if (!directory.isDirectory()
@@ -541,85 +326,110 @@ public class Main {
 
                             if (file.isFile()
                                     && file.canExecute()
-                                    && name.startsWith(partial)) {
+                                    && name.startsWith(currentWord)) {
                                 commandMatches.add(name);
                             }
                         }
                     }
                 }
 
-                if (commandMatches.isEmpty()) {
-                    terminal.writer().write('\007');
-                    terminal.writer().flush();
-
-                    lastTabPrefix[0] = null;
-                    return true;
-                }
-
-                if (commandMatches.size() == 1) {
-                    String match = commandMatches.first();
-
-                    reader.getBuffer().write(
-                            match.substring(partial.length()) + " "
-                    );
-
-                    lastTabPrefix[0] = null;
-                    return true;
-                }
-
-                String commonPrefix = commandMatches.first();
-
                 for (String match : commandMatches) {
-                    int commonLength = 0;
-
-                    int limit = Math.min(
-                            commonPrefix.length(),
-                            match.length()
-                    );
-
-                    while (commonLength < limit
-                            && commonPrefix.charAt(commonLength)
-                                    == match.charAt(commonLength)) {
-                        commonLength++;
-                    }
-
-                    commonPrefix =
-                            commonPrefix.substring(0, commonLength);
+                    candidates.add(new Candidate(match));
                 }
 
-                if (commonPrefix.length() > partial.length()) {
-                    reader.getBuffer().write(
-                            commonPrefix.substring(partial.length())
-                    );
+                return;
+            }
 
-                    lastTabPrefix[0] = null;
-                    return true;
-                }
+            if (words.isEmpty()) {
+                return;
+            }
 
-                boolean secondTab =
-                        partial.equals(lastTabPrefix[0]);
+            String commandName = words.get(0);
+            String completerPath = completionSpecs.get(commandName);
 
-                if (!secondTab) {
-                    terminal.writer().write('\007');
-                    terminal.writer().flush();
+            // Programmable completion registered using `complete -C`.
+            if (completerPath != null) {
+                String previousWord = wordIndex > 0
+                        ? words.get(wordIndex - 1)
+                        : "";
 
-                    lastTabPrefix[0] = partial;
-                    return true;
-                }
+                int cursor = Math.min(parsedLine.cursor(), buffer.length());
+                int compPoint = buffer.substring(0, cursor)
+                        .getBytes(StandardCharsets.UTF_8).length;
 
-                terminal.writer().println();
-                terminal.writer().println(
-                        String.join("  ", commandMatches)
+                List<String> scriptCandidates = invokeCompleter(
+                        completerPath,
+                        commandName,
+                        currentWord,
+                        previousWord,
+                        buffer,
+                        compPoint
                 );
-                terminal.writer().print("$ " + partial);
-                terminal.writer().flush();
 
-                lastTabPrefix[0] = null;
-                return true;
-            });
+                for (String candidate : scriptCandidates) {
+                    if (candidate.startsWith(currentWord)) {
+                        candidates.add(new Candidate(candidate));
+                    }
+                }
 
-            reader.getKeyMaps().get(LineReader.MAIN)
-                    .bind(new Reference("path-complete"), "\t");
+                return;
+            }
+
+            // Filename and directory completion for command arguments.
+            int lastSlash = currentWord.lastIndexOf('/');
+            String directoryPath = lastSlash >= 0
+                    ? currentWord.substring(0, lastSlash + 1)
+                    : "";
+            String filenamePrefix = lastSlash >= 0
+                    ? currentWord.substring(lastSlash + 1)
+                    : currentWord;
+
+            File directory = directoryPath.isEmpty()
+                    ? new File(".")
+                    : new File(directoryPath);
+
+            File[] entries = directory.listFiles();
+
+            if (entries == null) {
+                return;
+            }
+
+            for (File entry : entries) {
+                if (!entry.getName().startsWith(filenamePrefix)) {
+                    continue;
+                }
+
+                String completedPath = directoryPath + entry.getName();
+
+                if (entry.isDirectory()) {
+                    candidates.add(new Candidate(
+                            completedPath,
+                            completedPath,
+                            null,
+                            null,
+                            "/",
+                            null,
+                            false
+                    ));
+                } else {
+                    candidates.add(new Candidate(completedPath));
+                }
+            }
+        };
+    }
+
+    public static void main(String[] args) throws Exception {
+        try (Terminal terminal = TerminalBuilder.builder()
+                .system(true)
+                .build()) {
+
+            LineReader reader = LineReaderBuilder.builder()
+                    .terminal(terminal)
+                    .parser(new ShellParser())
+                    .completer(createShellCompleter())
+                    .option(LineReader.Option.AUTO_LIST, true)
+                    .option(LineReader.Option.LIST_PACKED, true)
+                    .build();
 
             while (true) {
                 String input;
